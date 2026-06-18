@@ -3,16 +3,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, Update
 
-from app.bot.group_registry import remember_chat_from_update
+from app.bot.group_registry import list_groups, remember_chat_from_update
 from app.bot.api_compat import answer_chat_join_request_query_compat
+from app.bot.telegram_webapp import TelegramWebAppAuthError, validate_init_data
 from app.config.settings import (
     ALLOWED_UPDATES,
+    BASE_DIR,
     BASE_URL,
     SET_WEBHOOK_ON_STARTUP,
     TELEGRAM_BOT_TOKEN,
@@ -20,10 +25,15 @@ from app.config.settings import (
     WEBHOOK_SECRET,
 )
 from app.plugins.tigrao_fsm import build_tigrao_fsm_plugin
+from app.plugins.tigrao_fsm import storage as tigrao_storage
 from app.plugins.tigrao_fsm.storage import ensure_tables as ensure_tigrao_tables
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Tigrão Moderador", version="1.0.0")
+STATIC_DIR = BASE_DIR / "app" / "static"
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 
 bot: Bot | None = None
 dispatcher: Dispatcher | None = None
@@ -86,6 +96,59 @@ def readyz() -> dict[str, Any]:
 
 
 
+
+
+@app.get("/join-request")
+def join_request_app() -> FileResponse:
+    """Tela Telegram Mini App para solicitação de entrada com seleção de grupo."""
+    return FileResponse(STATIC_DIR / "join-request.html", media_type="text/html; charset=utf-8")
+
+
+def _has_valid_join_request_auth(data: dict[str, Any]) -> tuple[bool, str | None]:
+    """Aceita secret interno ou initData assinado pelo Telegram Mini App."""
+    if WEBHOOK_SECRET and str(data.get("secret") or "") == WEBHOOK_SECRET:
+        return True, "secret"
+    init_data = str(data.get("init_data") or data.get("initData") or "").strip()
+    if init_data:
+        try:
+            validate_init_data(init_data, TELEGRAM_BOT_TOKEN)
+            return True, "telegram_init_data"
+        except TelegramWebAppAuthError as exc:
+            return False, f"initData inválido: {exc}"
+    if WEBHOOK_SECRET:
+        return False, "secret ou initData obrigatório"
+    return True, "dev_no_secret"
+
+
+@app.post("/telegram/join-request/groups")
+async def telegram_join_request_groups(request: Request) -> JSONResponse:
+    """Lista grupos conhecidos para a tela de entrada.
+
+    A lista só é entregue para chamada interna com WEBHOOK_SECRET ou para Mini
+    App com initData válido. Isso evita expor grupos privados por endpoint cru.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    ok, reason = _has_valid_join_request_auth(data)
+    if not ok:
+        return JSONResponse({"ok": False, "error": reason}, status_code=403)
+    groups = []
+    for item in list_groups(limit=100):
+        title = str(item.get("title") or item.get("username") or item.get("chat_id"))
+        username = item.get("username")
+        link = f"https://t.me/{username}" if username else None
+        groups.append({
+            "chat_id": int(item["chat_id"]),
+            "title": title,
+            "username": username,
+            "chat_type": item.get("chat_type"),
+            "last_seen": item.get("last_seen"),
+            "public_link": link,
+        })
+    return JSONResponse({"ok": True, "groups": groups})
+
 @app.post("/telegram/join-request-query")
 async def telegram_join_request_query(request: Request) -> Response:
     """Resolve Join Request Query enviado por Mini App externo.
@@ -94,19 +157,62 @@ async def telegram_join_request_query(request: Request) -> Response:
     Corpo esperado: {"secret": "...", "query_id": "...", "result": "approve|decline|queue"}.
     """
     if bot is None:
-        return Response(status_code=503)
+        return JSONResponse({"ok": False, "error": "bot indisponível"}, status_code=503)
     try:
         data = await request.json()
     except Exception:
-        return Response(status_code=400)
-    if WEBHOOK_SECRET and str(data.get("secret") or "") != WEBHOOK_SECRET:
-        return Response(status_code=403)
+        return JSONResponse({"ok": False, "error": "JSON inválido"}, status_code=400)
+    ok, reason = _has_valid_join_request_auth(data)
+    if not ok:
+        return JSONResponse({"ok": False, "error": reason}, status_code=403)
     query_id = str(data.get("query_id") or data.get("chat_join_request_query_id") or "").strip()
     result = str(data.get("result") or "").strip().lower()
+    selected_chat_id_raw = data.get("selected_chat_id") or data.get("chat_id")
+    selected_chat_id: int | None = None
+    if selected_chat_id_raw not in (None, ""):
+        try:
+            selected_chat_id = int(selected_chat_id_raw)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "selected_chat_id inválido"}, status_code=400)
     if not query_id or result not in {"approve", "decline", "queue"}:
-        return Response(status_code=400)
+        return JSONResponse({"ok": False, "error": "query_id e result=approve|decline|queue são obrigatórios"}, status_code=400)
+    record = tigrao_storage.find_pending_join_request_by_query_id(query_id=query_id)
+    if record is not None and selected_chat_id is not None and int(record.chat_id) != int(selected_chat_id):
+        tigrao_storage.log_event(
+            action="join_request_webapp_group_mismatch",
+            result="bloqueado",
+            detection="mini_app",
+            surface="join_request_webapp",
+            chat_id=record.chat_id,
+            chat_title=record.chat_title,
+            target_user_id=record.user_id,
+            target_username=record.username,
+            target_full_name=record.full_name,
+            details="Mini App tentou resolver solicitação com grupo diferente do query_id.",
+            metadata={"query_id": query_id, "selected_chat_id": selected_chat_id, "auth": reason},
+        )
+        return JSONResponse({"ok": False, "error": "Grupo selecionado não corresponde à solicitação de entrada."}, status_code=409)
     await answer_chat_join_request_query_compat(bot, chat_join_request_query_id=query_id, result=result)
-    return Response(status_code=200)
+    if record is not None and result in {"approve", "decline"}:
+        record.status = tigrao_storage.APPROVED if result == "approve" else tigrao_storage.DECLINED
+        record.processed_at = tigrao_storage.utcnow()
+        record.result_detail = f"Resolvido pelo Mini App: {result}."
+        tigrao_storage.update_join_request_status(record)
+    if record is not None:
+        tigrao_storage.log_event(
+            action="join_request_webapp_resolved",
+            result=result,
+            detection="mini_app",
+            surface="join_request_webapp",
+            chat_id=record.chat_id,
+            chat_title=record.chat_title,
+            target_user_id=record.user_id,
+            target_username=record.username,
+            target_full_name=record.full_name,
+            details=f"Solicitação resolvida pelo Mini App com resultado {result}.",
+            metadata={"query_id": query_id, "selected_chat_id": selected_chat_id, "auth": reason},
+        )
+    return JSONResponse({"ok": True, "result": result})
 
 
 @app.on_event("startup")

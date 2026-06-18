@@ -25,6 +25,7 @@ class TigraoJoinRequest:
     processed_at: datetime | None = None
     processed_by: int | None = None
     result_detail: str | None = None
+    query_id: str | None = None
 
     @classmethod
     def create(cls, **kwargs: Any) -> "TigraoJoinRequest":

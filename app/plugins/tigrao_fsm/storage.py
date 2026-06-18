@@ -87,10 +87,16 @@ def ensure_tables() -> None:
                 status TEXT NOT NULL,
                 processed_at TEXT,
                 processed_by INTEGER,
-                result_detail TEXT
+                result_detail TEXT,
+                query_id TEXT
             )
         """))
+        try:
+            conn.execute(text("ALTER TABLE tigrao_join_requests ADD COLUMN query_id TEXT"))
+        except Exception:
+            pass
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tigrao_join_requests_lookup ON tigrao_join_requests(chat_id, user_id, status, received_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tigrao_join_requests_query ON tigrao_join_requests(query_id, status)"))
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS tigrao_join_auto_accept (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,11 +265,11 @@ def save_join_request(request: TigraoJoinRequest) -> int:
                 INSERT INTO tigrao_join_requests (
                     chat_id, chat_title, user_id, username, full_name, user_chat_id, bio,
                     invite_link, request_date, received_at, expires_at, status,
-                    processed_at, processed_by, result_detail
+                    processed_at, processed_by, result_detail, query_id
                 ) VALUES (
                     :chat_id, :chat_title, :user_id, :username, :full_name, :user_chat_id, :bio,
                     :invite_link, :request_date, :received_at, :expires_at, :status,
-                    :processed_at, :processed_by, :result_detail
+                    :processed_at, :processed_by, :result_detail, :query_id
                 )
             """),
             {
@@ -282,6 +288,7 @@ def save_join_request(request: TigraoJoinRequest) -> int:
                 "processed_at": _to_iso(request.processed_at),
                 "processed_by": request.processed_by,
                 "result_detail": request.result_detail,
+                "query_id": request.query_id,
             },
         )
         return int(getattr(result_obj, "lastrowid", 0) or 0)
@@ -304,7 +311,28 @@ def _request_from_row(row: dict[str, Any]) -> TigraoJoinRequest:
         processed_at=_from_iso(row.get("processed_at")),
         processed_by=int(row["processed_by"]) if row.get("processed_by") is not None else None,
         result_detail=row.get("result_detail"),
+        query_id=row.get("query_id"),
     )
+
+
+def find_pending_join_request_by_query_id(*, query_id: str, now: datetime | None = None) -> TigraoJoinRequest | None:
+    ensure_tables()
+    query_id = str(query_id or "").strip()
+    if not query_id:
+        return None
+    now = now or utcnow()
+    cutoff = now - JOIN_REQUEST_TTL
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("""
+                SELECT * FROM tigrao_join_requests
+                WHERE query_id=:query_id AND status=:status AND received_at>=:cutoff
+                ORDER BY id DESC
+                LIMIT 1
+            """),
+            {"query_id": query_id, "status": PENDING, "cutoff": _to_iso(cutoff)},
+        ).mappings().first()
+    return _request_from_row(dict(row)) if row else None
 
 
 def find_pending_join_request(*, chat_id: int, user_id: int, now: datetime | None = None) -> TigraoJoinRequest | None:

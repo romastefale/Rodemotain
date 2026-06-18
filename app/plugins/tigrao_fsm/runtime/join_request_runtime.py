@@ -61,6 +61,7 @@ def _request_from_update(join_request: Any) -> TigraoJoinRequest:
         bio=getattr(join_request, "bio", None),
         invite_link=_invite_link_value(getattr(join_request, "invite_link", None)),
         request_date=request_date,
+        query_id=str(getattr(join_request, "query_id", "") or "") or None,
     )
 
 
@@ -200,7 +201,8 @@ async def handle(bot: Any, update: Any) -> bool:
         metadata={"invite_link": request.invite_link, "user_chat_id": request.user_chat_id},
     )
 
-    await _send_join_request_webapp_if_available(bot, join_request, request)
+    if await _send_join_request_webapp_if_available(bot, join_request, request):
+        return True
     if await _anti_raid_gate(bot, request):
         return True
     if await _captcha_gate(bot, request):

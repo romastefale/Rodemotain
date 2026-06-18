@@ -155,5 +155,15 @@ ALLOWED_UPDATES = [
     "removed_chat_boost",
 ]
 
-# Mini App opcional para Join Request Queries (Bot API 10.1).
-TIGRAO_JOIN_REQUEST_WEBAPP_URL = _env("TIGRAO_JOIN_REQUEST_WEBAPP_URL", "").strip()
+def _resolve_join_request_webapp_url() -> str:
+    configured = _env("TIGRAO_JOIN_REQUEST_WEBAPP_URL", "").strip()
+    if configured:
+        return _normalize_public_url(configured)
+    if BASE_URL:
+        return f"{BASE_URL}/join-request"
+    return ""
+
+
+# Mini App para Join Request Queries (Bot API 10.1).
+# Se não for configurado manualmente, usa automaticamente BASE_URL + /join-request.
+TIGRAO_JOIN_REQUEST_WEBAPP_URL = _resolve_join_request_webapp_url()

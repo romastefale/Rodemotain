@@ -1,0 +1,8 @@
+FASE19 OK
+Base: tigrao-moderador-bot-fase18.zip
+Mini App /join-request criado.
+Seleção de grupo criada.
+Endpoint /telegram/join-request/groups criado.
+Endpoint /telegram/join-request-query valida selected_chat_id contra query_id salvo.
+TIGRAO_JOIN_REQUEST_WEBAPP_URL usa fallback BASE_URL + /join-request.
+Validação local: python -m compileall -q app tests; pytest -q => 72 passed.
