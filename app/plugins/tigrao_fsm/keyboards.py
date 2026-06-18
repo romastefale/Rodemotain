@@ -125,6 +125,7 @@ CALLBACK_ACTIONS = frozenset({
     "react",
     "confirm",
     "cancel",
+    "panel",
     "back",
     "close",
     *(f"g{i}" for i in range(50)),
@@ -562,8 +563,18 @@ def logs_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
 
 def confirm_cancel_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("✅ Confirmar", make_callback(session_id, "confirm"), style="danger")],
+        [button("✅ Confirmar", make_callback(session_id, "confirm"), style="success")],
         [button("↩️ Cancelar", make_callback(session_id, "cancel"), style="primary")],
+        [button("⬅️ Painel principal", make_callback(session_id, "panel"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
+    ]
+
+
+def post_action_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
+    """Navegação após confirmar/cancelar: voltar ao painel ou fechar."""
+    return [
+        [button("⬅️ Painel principal", make_callback(session_id, "panel"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
 
 

@@ -1,0 +1,4 @@
+FASE 27 OK
+Base: tigrao-moderador-bot-fase26.zip
+Validação: python -m compileall -q app tests && pytest -q
+Resultado: 94 passed

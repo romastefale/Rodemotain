@@ -36,6 +36,7 @@ from ..keyboards import (
     join_requests_keyboard,
     logs_keyboard,
     parse_callback,
+    post_action_keyboard,
     button,
     make_callback,
     to_inline_keyboard_markup,
@@ -221,6 +222,52 @@ class TigraoWaitingTextFilter(Filter):
         return bool(session is not None and session.waiting_for)
 
 
+
+def _flow_prompt_location_from_message(message: Any) -> tuple[int | None, int | None]:
+    chat = getattr(message, "chat", None)
+    chat_id = getattr(chat, "id", None)
+    message_id = getattr(message, "message_id", None)
+    try:
+        return (None if chat_id is None else int(chat_id), None if message_id is None else int(message_id))
+    except Exception:
+        return None, None
+
+
+def _remember_flow_prompt(session: Any, message: Any) -> None:
+    """Guarda a mensagem editada que virou instrução transitória do fluxo."""
+    chat_id, message_id = _flow_prompt_location_from_message(message)
+    if chat_id is None or message_id is None:
+        return
+    session.payload["flow_prompt_chat_id"] = chat_id
+    session.payload["flow_prompt_message_id"] = message_id
+
+
+def _forget_flow_prompt(session: Any) -> None:
+    session.payload.pop("flow_prompt_chat_id", None)
+    session.payload.pop("flow_prompt_message_id", None)
+
+
+async def _delete_flow_prompt(bot: Any, session: Any) -> None:
+    """Apaga a mensagem antiga do fluxo antes de criar nova confirmação/resultado."""
+    chat_id = session.payload.pop("flow_prompt_chat_id", None)
+    message_id = session.payload.pop("flow_prompt_message_id", None)
+    if bot is None or chat_id is None or message_id is None:
+        return
+    try:
+        await bot.delete_message(chat_id=int(chat_id), message_id=int(message_id))
+    except Exception:
+        logger.debug("RODEMOTAIN_FLOW_PROMPT_DELETE_FAILED", exc_info=True)
+
+
+async def _send_flow_confirmation(message: Message, bot: Any, session: Any, text: str) -> None:
+    await _delete_flow_prompt(bot, session)
+    await message.answer(text, reply_markup=to_inline_keyboard_markup(confirm_cancel_keyboard(session.session_id)))
+
+
+async def _send_flow_result(message: Message, bot: Any, session: Any, text: str) -> None:
+    await _delete_flow_prompt(bot, session)
+    await message.answer(text, reply_markup=to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
+
 def _home_markup(session_id: str) -> Any:
     return to_inline_keyboard_markup(home_keyboard(session_id))
 
@@ -243,6 +290,13 @@ async def _safe_edit(callback: CallbackQuery, text: str, markup: Any) -> None:
     except Exception:
         logger.debug("TIGRAO_CALLBACK_ANSWER_FAILED", exc_info=True)
 
+
+
+async def _safe_edit_flow_prompt(callback: CallbackQuery, session: Any, text: str, markup: Any) -> None:
+    """Edita a mensagem como instrução transitória e guarda para limpeza futura."""
+    await _safe_edit(callback, text, markup)
+    if callback.message is not None:
+        _remember_flow_prompt(session, callback.message)
 
 
 async def _delete_message_later(bot: Any, *, chat_id: int, message_id: int, delay_seconds: int = GROUP_COMMAND_TTL_SECONDS) -> None:
@@ -396,10 +450,7 @@ async def tigrao_waiting_photo(message: Message, bot: Any) -> None:
     details = [f"Arquivo Telegram: {file_id[:16]}...", f"Dimensão: {width or '?'}x{height or '?'}"]
     if size is not None:
         details.append(f"Tamanho: {size} bytes")
-    await message.answer(
-        _advanced_confirmation_text(session, "setphoto", details),
-        reply_markup=to_inline_keyboard_markup(confirm_cancel_keyboard(session.session_id)),
-    )
+    await _send_flow_confirmation(message, bot, session, _advanced_confirmation_text(session, "setphoto", details))
 
 
 @router.message(TigraoWaitingTextFilter(), F.text)
@@ -422,15 +473,15 @@ async def tigrao_waiting_message(message: Message, bot: Any) -> None:
     elif session.waiting_for == "join_decline_id":
         await _handle_join_decline_id(message, bot, session, text)
     elif session.waiting_for == "destructive_user_id":
-        await _handle_destructive_user_id(message, session, text)
+        await _handle_destructive_user_id(message, bot, session, text)
     elif session.waiting_for == "destructive_message_id":
-        await _handle_destructive_message_id(message, session, text)
+        await _handle_destructive_message_id(message, bot, session, text)
     elif session.waiting_for == "advanced_text":
         await _handle_advanced_text(message, bot, session, text)
     elif session.waiting_for == "ddx_filter_text":
-        await _handle_ddx_filter_text(message, session, text)
+        await _handle_ddx_filter_text(message, bot, session, text)
     elif session.waiting_for == "ddx_remove_id":
-        await _handle_ddx_remove_id(message, session, text)
+        await _handle_ddx_remove_id(message, bot, session, text)
 
 
 @router.chat_join_request()
@@ -494,7 +545,19 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
         session.payload.pop("nav_back", None)
         session.payload.pop("pending_destructive_action", None)
         session.payload.pop("pending_advanced_action", None)
+        _forget_flow_prompt(session)
         await _safe_edit(callback, HOME_TEXT, _home_markup(session_id))
+    elif action == "panel":
+        session.waiting_for = None
+        session.selected_action = None
+        session.payload.pop("nav_back", None)
+        session.payload.pop("pending_destructive_action", None)
+        session.payload.pop("pending_advanced_action", None)
+        _forget_flow_prompt(session)
+        if session.selected_chat_id is not None:
+            await _show_selected_group_panel(callback, bot, session)
+        else:
+            await _safe_edit(callback, HOME_TEXT, _home_markup(session_id))
     elif action == "back":
         await _go_back(callback, bot, session)
     elif action == "grp":
@@ -520,11 +583,11 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
     elif action == "join_accept":
         session.waiting_for = "join_pending_id"
         session.payload["nav_back"] = "join"
-        await _safe_edit(callback, "Envie o ID Telegram pendente que deve ser aceito.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit_flow_prompt(callback, session, "Envie o ID Telegram pendente que deve ser aceito.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
     elif action == "join_decline":
         session.waiting_for = "join_decline_id"
         session.payload["nav_back"] = "join"
-        await _safe_edit(callback, "Envie o ID Telegram pendente que deve ser recusado.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit_flow_prompt(callback, session, "Envie o ID Telegram pendente que deve ser recusado.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
     elif action == "act":
         await _show_actions(callback, session)
     elif is_action_category_key(action):
@@ -546,7 +609,7 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
         session.waiting_for = None
         session.payload.pop("pending_destructive_action", None)
         session.payload.pop("pending_advanced_action", None)
-        await _safe_edit(callback, "Ação cancelada.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit(callback, "Ação cancelada.\n\nDeseja voltar ao painel principal ou fechar?", to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
     elif action == "ddx":
         await _show_ddx(callback, session)
     elif action == "ddxon":
@@ -582,6 +645,7 @@ async def _go_back(callback: CallbackQuery, bot: Any, session: Any) -> None:
     session.selected_action = None
     session.payload.pop("pending_destructive_action", None)
     session.payload.pop("pending_advanced_action", None)
+    _forget_flow_prompt(session)
     nav = session.payload.pop("nav_back", None)
     if nav == "act":
         await _show_actions(callback, session)
@@ -755,7 +819,7 @@ async def _join_auto_or_list(callback: CallbackQuery, session: Any) -> None:
     if session.payload.get("last_invite_link"):
         session.waiting_for = "join_auto_ids"
         session.payload["nav_back"] = "join"
-        await _safe_edit(callback, "Envie um ou mais IDs Telegram. Pode separar por espaço, vírgula ou quebra de linha.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit_flow_prompt(callback, session, "Envie um ou mais IDs Telegram. Pode separar por espaço, vírgula ou quebra de linha.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
     rows = storage.list_auto_accepts(chat_id=chat_id, limit=10)
     if not rows:
@@ -831,7 +895,10 @@ async def _handle_join_auto_ids(message: Message, bot: Any, session: Any, text: 
     session.waiting_for = None
     session.payload.pop("last_invite_link", None)
     invalid_text = "\n".join(parsed.invalid) if parsed.invalid else "nenhum"
-    await message.answer(
+    await _send_flow_result(
+        message,
+        bot,
+        session,
         f"Autoaceite ativado por 2h.\n"
         f"IDs autorizados: {len(parsed.valid)}\n"
         f"Pendentes aprovados agora: {approved_now}\n"
@@ -852,8 +919,8 @@ async def _handle_join_pending_id(message: Message, bot: Any, session: Any, text
     user_id = parsed.valid[0]
     req = storage.find_pending_join_request(chat_id=chat_id, user_id=user_id)
     if req is None:
-        await message.answer("Nenhuma solicitação pendente desse ID foi encontrada nas últimas 2h.")
         session.waiting_for = None
+        await _send_flow_result(message, bot, session, "Nenhuma solicitação pendente desse ID foi encontrada nas últimas 2h.")
         return
     try:
         perms = await get_bot_permissions(bot, chat_id)
@@ -862,10 +929,10 @@ async def _handle_join_pending_id(message: Message, bot: Any, session: Any, text
         detail = await approve_pending_join_request(bot, req, processed_by=session.moderator_user_id or session.owner_user_id, autoaccept=False, origin="aprovação manual por ID pendente")
         storage.update_join_request_status(req)
         storage.log_event(action="join_pending_approve", result=req.status, detection="indireta", surface="banco_pendente", chat_id=chat_id, chat_title=title, actor_user_id=session.moderator_user_id or session.owner_user_id, target_user_id=user_id, details=detail)
-        await message.answer(detail)
+        await _send_flow_result(message, bot, session, detail)
     except Exception as exc:
         storage.log_event(action="join_pending_approve", result="falhou", detection="indireta", surface="banco_pendente", chat_id=chat_id, chat_title=title, actor_user_id=session.moderator_user_id or session.owner_user_id, target_user_id=user_id, details=str(exc))
-        await message.answer(f"Falha ao aprovar ID pendente: {exc}")
+        await _send_flow_result(message, bot, session, f"Falha ao aprovar ID pendente: {exc}")
     finally:
         session.waiting_for = None
 
@@ -887,7 +954,7 @@ async def _handle_join_decline_id(message: Message, bot: Any, session: Any, text
             raise PermissionError("bot sem can_invite_users")
         pending = storage.find_pending_join_request(chat_id=chat_id, user_id=user_id)
         if pending is None:
-            await message.answer("Não encontrei solicitação pendente para esse ID nos últimos registros ativos.")
+            await _send_flow_result(message, bot, session, "Não encontrei solicitação pendente para esse ID nos últimos registros ativos.")
             return
         detail = await decline_pending_join_request(bot, pending, processed_by=session.moderator_user_id or session.owner_user_id, origin="manual")
     except Exception as exc:
@@ -902,10 +969,10 @@ async def _handle_join_decline_id(message: Message, bot: Any, session: Any, text
             target_user_id=user_id,
             details=str(exc),
         )
-        await message.answer(f"Falha ao recusar solicitação: {exc}")
+        await _send_flow_result(message, bot, session, f"Falha ao recusar solicitação: {exc}")
         return
     session.waiting_for = None
-    await message.answer(f"Solicitação recusada.\n{detail}")
+    await _send_flow_result(message, bot, session, f"Solicitação recusada.\n{detail}")
 
 
 async def _show_actions(callback: CallbackQuery, session: Any) -> None:
@@ -1008,7 +1075,7 @@ async def _prompt_destructive_user(callback: CallbackQuery, session: Any, action
     session.selected_action = action
     session.waiting_for = "destructive_user_id"
     session.payload["nav_back"] = _action_back_target(session)
-    await _safe_edit(callback, f"{_ACTION_LABELS[action]}\n\nEnvie o ID Telegram numérico do alvo.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+    await _safe_edit_flow_prompt(callback, session, f"{_ACTION_LABELS[action]}\n\nEnvie o ID Telegram numérico do alvo.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
 async def _prompt_delete_message(callback: CallbackQuery, session: Any) -> None:
@@ -1019,7 +1086,7 @@ async def _prompt_delete_message(callback: CallbackQuery, session: Any) -> None:
     session.selected_action = "delmsg"
     session.waiting_for = "destructive_message_id"
     session.payload["nav_back"] = _action_back_target(session)
-    await _safe_edit(callback, "Apagar mensagem\n\nEnvie o message_id numérico ou o link t.me da mensagem.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+    await _safe_edit_flow_prompt(callback, session, "Apagar mensagem\n\nEnvie o message_id numérico ou o link t.me da mensagem.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
 def _positive_int(text: str) -> int | None:
@@ -1030,7 +1097,7 @@ def _positive_int(text: str) -> int | None:
     return value if value > 0 else None
 
 
-async def _handle_destructive_user_id(message: Message, session: Any, text: str) -> None:
+async def _handle_destructive_user_id(message: Message, bot: Any, session: Any, text: str) -> None:
     user_id = _positive_int(text)
     if user_id is None:
         await message.answer("Envie um ID Telegram numérico positivo.")
@@ -1042,16 +1109,18 @@ async def _handle_destructive_user_id(message: Message, session: Any, text: str)
     action = str(session.selected_action or "")
     session.payload["pending_destructive_action"] = {"action": action, "target_user_id": user_id}
     session.waiting_for = None
-    await message.answer(
+    await _send_flow_confirmation(
+        message,
+        bot,
+        session,
         "Confirmar ação\n\n"
         f"Grupo: {title}\nID do grupo: {chat_id}\n\n"
         f"Ação: {_ACTION_LABELS.get(action, action)}\nID do alvo: {user_id}\n\n"
         "A ação real só será executada após confirmação.",
-        reply_markup=to_inline_keyboard_markup(confirm_cancel_keyboard(session.session_id)),
     )
 
 
-async def _handle_destructive_message_id(message: Message, session: Any, text: str) -> None:
+async def _handle_destructive_message_id(message: Message, bot: Any, session: Any, text: str) -> None:
     chat_id, title, error = _selected_group_or_text(session)
     if error:
         await message.answer(error)
@@ -1070,12 +1139,14 @@ async def _handle_destructive_message_id(message: Message, session: Any, text: s
     }
     session.waiting_for = None
     source_line = "Referência: link Telegram validado" if parsed.chat_id_from_link is not None else "Referência: message_id informado"
-    await message.answer(
+    await _send_flow_confirmation(
+        message,
+        bot,
+        session,
         "Confirmar ação\n\n"
         f"Grupo: {title}\nID do grupo: {chat_id}\n\n"
         f"Ação: Apagar mensagem\nID da mensagem: {message_id}\n{source_line}\n\n"
         "A ação real só será executada após confirmação.",
-        reply_markup=to_inline_keyboard_markup(confirm_cancel_keyboard(session.session_id)),
     )
 
 
@@ -1122,7 +1193,7 @@ async def _confirm_pending_action(callback: CallbackQuery, bot: Any, session: An
     if pending_advanced:
         await _execute_pending_advanced_action(callback, bot, session, pending_advanced)
         return
-    await _safe_edit(callback, "Nenhuma ação pendente para confirmar.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+    await _safe_edit(callback, "Nenhuma ação pendente para confirmar.", to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
 
 
 async def _execute_pending_destructive_action(callback: CallbackQuery, bot: Any, session: Any, pending: dict[str, Any]) -> None:
@@ -1136,7 +1207,7 @@ async def _execute_pending_destructive_action(callback: CallbackQuery, bot: Any,
         bot_id = int(getattr(me, "id"))
     except Exception as exc:
         storage.log_event(action="destructive_confirm", result="falhou", detection="direta", surface="callback", chat_id=chat_id, chat_title=title, actor_user_id=session.moderator_user_id or session.owner_user_id, details=str(exc))
-        await _safe_edit(callback, f"Falha ao revalidar permissões: {exc}", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit(callback, f"Falha ao revalidar permissões: {exc}\n\nDeseja voltar ao painel principal ou fechar?", to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
         return
     target_user_id = pending.get("target_user_id")
     target_is_admin = False
@@ -1157,7 +1228,7 @@ async def _execute_pending_destructive_action(callback: CallbackQuery, bot: Any,
     session.selected_action = None
     session.waiting_for = None
     session.payload["nav_back"] = _action_back_target(session)
-    await _safe_edit(callback, f"Resultado: {result.result}\n{result.detail}", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+    await _safe_edit(callback, f"Resultado: {result.result}\n{result.detail}\n\nDeseja voltar ao painel principal ou fechar?", to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
 
 
 def _duration_from_pending(value: int | None) -> timedelta | None:
@@ -1186,7 +1257,7 @@ async def _execute_pending_advanced_action(callback: CallbackQuery, bot: Any, se
         bot_id = int(getattr(me, "id"))
     except Exception as exc:
         storage.log_event(action="advanced_confirm", result="falhou", detection="direta", surface="callback", chat_id=chat_id, chat_title=title, actor_user_id=actor, details=str(exc), metadata={"action": action})
-        await _safe_edit(callback, f"Falha ao revalidar permissões: {exc}", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit(callback, f"Falha ao revalidar permissões: {exc}\n\nDeseja voltar ao painel principal ou fechar?", to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
         return
 
     if action in {"bantime", "mutetime"}:
@@ -1281,7 +1352,7 @@ async def _execute_pending_advanced_action(callback: CallbackQuery, bot: Any, se
     session.selected_action = None
     session.waiting_for = None
     session.payload["nav_back"] = _action_back_target(session)
-    await _safe_edit(callback, f"Resultado: {result.result}\n{result.detail}", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+    await _safe_edit(callback, f"Resultado: {result.result}\n{result.detail}\n\nDeseja voltar ao painel principal ou fechar?", to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
 
 
 _ADVANCED_PROMPTS = {
@@ -1359,7 +1430,7 @@ async def _prompt_advanced_text(callback: CallbackQuery, session: Any, action: s
     session.selected_action = action
     session.waiting_for = "setphoto_upload" if action == "setphoto" else "advanced_text"
     session.payload["nav_back"] = _action_back_target(session)
-    await _safe_edit(callback, _ADVANCED_PROMPTS[action], to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+    await _safe_edit_flow_prompt(callback, session, _ADVANCED_PROMPTS[action], to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
 async def _revalidated_permissions(bot: Any, chat_id: int):
@@ -1553,7 +1624,7 @@ async def _handle_advanced_text(message: Message, bot: Any, session: Any, text: 
         if user_id is None and text.strip().casefold() not in {"todos", "all", "*"}:
             await message.answer("Envie user_id numérico ou todos.")
             return
-        await message.answer(format_warning_list(chat_id=chat_id, user_id=user_id))
+        await _send_flow_result(message, bot, session, format_warning_list(chat_id=chat_id, user_id=user_id))
         session.waiting_for = None
         session.selected_action = None
         return
@@ -1623,10 +1694,8 @@ async def _handle_advanced_text(message: Message, bot: Any, session: Any, text: 
     session.payload["pending_advanced_action"] = pending
     session.waiting_for = None
     session.payload["nav_back"] = _action_back_target(session)
-    await message.answer(
-        _advanced_confirmation_text(session, action, details),
-        reply_markup=to_inline_keyboard_markup(confirm_cancel_keyboard(session.session_id)),
-    )
+    # A confirmação nova usa confirm_cancel_keyboard via _send_flow_confirmation.
+    await _send_flow_confirmation(message, bot, session, _advanced_confirmation_text(session, action, details))
 
 
 async def _execute_advanced_no_text(callback: CallbackQuery, bot: Any, session: Any, action: str) -> None:
@@ -1677,8 +1746,9 @@ async def _prompt_ddx_filter(callback: CallbackQuery, session: Any) -> None:
         return
     session.waiting_for = "ddx_filter_text"
     session.payload["nav_back"] = "ddx"
-    await _safe_edit(
+    await _safe_edit_flow_prompt(
         callback,
+        session,
         "Envie o filtro DDX hard.\n\n"
         "Formato: texto | tempo\n"
         "Exemplos:\n"
@@ -1692,7 +1762,7 @@ async def _prompt_ddx_filter(callback: CallbackQuery, session: Any) -> None:
     )
 
 
-async def _handle_ddx_filter_text(message: Message, session: Any, text: str) -> None:
+async def _handle_ddx_filter_text(message: Message, bot: Any, session: Any, text: str) -> None:
     chat_id, title, error = _selected_group_or_text(session)
     if error:
         await message.answer(error)
@@ -1724,7 +1794,7 @@ async def _handle_ddx_filter_text(message: Message, session: Any, text: str) -> 
         details=f"Filtro #{filter_id}: {parsed.filter_text}; tempo: {duration_label}",
     )
     session.waiting_for = None
-    await message.answer(f"Filtro DDX adicionado. ID: {filter_id}\nTempo: {duration_label}")
+    await _send_flow_result(message, bot, session, f"Filtro DDX adicionado. ID: {filter_id}\nTempo: {duration_label}")
 
 
 async def _list_ddx(callback: CallbackQuery, session: Any) -> None:
@@ -1754,10 +1824,10 @@ async def _prompt_ddx_remove(callback: CallbackQuery, session: Any) -> None:
         return
     session.waiting_for = "ddx_remove_id"
     session.payload["nav_back"] = "ddx"
-    await _safe_edit(callback, "Envie o ID numérico do filtro DDX a remover.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+    await _safe_edit_flow_prompt(callback, session, "Envie o ID numérico do filtro DDX a remover.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
-async def _handle_ddx_remove_id(message: Message, session: Any, text: str) -> None:
+async def _handle_ddx_remove_id(message: Message, bot: Any, session: Any, text: str) -> None:
     chat_id, title, error = _selected_group_or_text(session)
     if error:
         await message.answer(error)
@@ -1769,7 +1839,7 @@ async def _handle_ddx_remove_id(message: Message, session: Any, text: str) -> No
     removed = storage.remove_ddx_filter(chat_id=chat_id, filter_id=filter_id)
     storage.log_event(action="ddx_filter_remove", result="concluido" if removed else "nao_encontrado", detection="direta", surface="dm", chat_id=chat_id, chat_title=title, actor_user_id=session.moderator_user_id or session.owner_user_id, details=f"Filtro removido: {filter_id}; linhas: {removed}")
     session.waiting_for = None
-    await message.answer("Filtro removido." if removed else "Filtro não encontrado.")
+    await _send_flow_result(message, bot, session, "Filtro removido." if removed else "Filtro não encontrado.")
 
 
 async def _show_logs(callback: CallbackQuery, session: Any, action: str) -> None:
