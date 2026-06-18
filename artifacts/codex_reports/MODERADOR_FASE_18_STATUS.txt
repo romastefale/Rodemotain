@@ -1,0 +1,13 @@
+MODERADOR FASE 18
+STATUS: OK
+BASE: tigrao-moderador-bot-fase17.zip
+ALTERACOES:
+- Adicionado /start com tutorial rápido.
+- Adicionado /help com lista de comandos e recursos.
+- /start e /help respondem também usuários não autorizados sem abrir painel.
+- Startup registra menu de comandos no Telegram via set_my_commands.
+- Confirmado que /healthz já estava ativo e Railway retornou 200 OK nos logs.
+VALIDACAO:
+- python -m compileall -q app tests
+- pytest -q
+RESULTADO: 67 passed

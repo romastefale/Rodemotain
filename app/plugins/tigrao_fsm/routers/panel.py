@@ -106,6 +106,76 @@ router = Router(name="tigrao_fsm_panel")
 HOME_TEXT = "Tigrão"
 SESSION_EXPIRED_TEXT = "Sessão expirada. Use /tigrao novamente."
 
+START_TEXT_AUTHORIZED = """🐯 Tigrão Moderador
+
+Bot online.
+
+Comandos principais:
+/start - abre este tutorial rápido
+/help - lista comandos e recursos
+/tigrao - abre o painel de moderação
+/captcha código - responde captcha de entrada
+
+Uso básico:
+1. Adicione o bot como administrador no grupo.
+2. Dê as permissões necessárias: apagar mensagens, restringir membros, convidar usuários, fixar mensagens, gerenciar tópicos e alterar informações quando for usar essas funções.
+3. No privado, use /tigrao para abrir o painel.
+4. Selecione o grupo e execute as ações por botões. Ações sensíveis exigem Confirmar.
+"""
+
+START_TEXT_UNAUTHORIZED = """🐯 Tigrão Moderador
+
+Bot online, mas este bot é privado.
+
+Seu Telegram ID não está autorizado em TIGRAO_BOT_ACCESS_USER_IDS.
+Peça ao dono do bot para incluir seu ID na variável do Railway.
+"""
+
+HELP_TEXT_AUTHORIZED = """🐯 Tigrão Moderador — comandos
+
+/start
+Mostra tutorial rápido e estado básico do bot.
+
+/help
+Lista comandos e recursos disponíveis.
+
+/tigrao
+Abre o painel de moderação. Em grupo, o bot tenta enviar o painel no seu privado. Em DM, abre direto.
+
+/captcha código
+Usado por novos membros para responder captcha de entrada quando o grupo está protegido por captcha.
+
+Recursos pelo painel:
+• seleção de grupos
+• ban, unban, mute, unmute e tempos customizados
+• apagar mensagem e purge em lote
+• DDX temporário/permanente
+• solicitações de entrada, fila, captcha, anti-raid e anti-flood
+• links de convite
+• promover/rebaixar administradores e título customizado
+• banir sender chat/canal
+• título, descrição e foto do grupo
+• tópicos/fórum
+• tags reais de membros
+• warnings/reincidência
+• fixados e reações
+• auditoria de administradores/bots
+• logs
+
+Observação: as funções dependem das permissões de administrador concedidas ao bot no Telegram.
+"""
+
+HELP_TEXT_UNAUTHORIZED = """🐯 Tigrão Moderador — comandos
+
+/start
+Mostra estado básico do bot.
+
+/help
+Mostra esta ajuda.
+
+Este bot é privado. Para abrir o painel, seu ID precisa estar em TIGRAO_BOT_ACCESS_USER_IDS.
+"""
+
 
 def _uid(obj: Any) -> int | None:
     user = getattr(obj, "from_user", None)
@@ -182,6 +252,31 @@ async def _safe_edit(callback: CallbackQuery, text: str, markup: Any) -> None:
     except Exception:
         logger.debug("TIGRAO_CALLBACK_ANSWER_FAILED", exc_info=True)
 
+
+
+
+@router.message(Command("start"))
+async def tigrao_start(message: Message) -> None:
+    """Tutorial rápido e resposta de vida do bot.
+
+Responde também usuários não autorizados para deixar claro que o webhook e o
+roteamento estão funcionando, sem abrir acesso ao painel.
+    """
+    user_id = _uid(message)
+    if _authorized(user_id):
+        await message.answer(START_TEXT_AUTHORIZED)
+    else:
+        await message.answer(START_TEXT_UNAUTHORIZED)
+
+
+@router.message(Command("help"))
+async def tigrao_help(message: Message) -> None:
+    """Lista comandos públicos e recursos do painel."""
+    user_id = _uid(message)
+    if _authorized(user_id):
+        await message.answer(HELP_TEXT_AUTHORIZED)
+    else:
+        await message.answer(HELP_TEXT_UNAUTHORIZED)
 
 @router.message(Command("tigrao"))
 async def tigrao_panel(message: Message, bot: Any) -> None:

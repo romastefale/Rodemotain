@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from aiogram import Bot, Dispatcher
-from aiogram.types import Update
+from aiogram.types import BotCommand, Update
 
 from app.bot.group_registry import remember_chat_from_update
 from app.bot.api_compat import answer_chat_join_request_query_compat
@@ -53,6 +53,22 @@ def _extract_user_id(update: Update) -> int | None:
             return int(user.id)
     return None
 
+
+
+
+async def _set_bot_commands_safe(bot_obj: Bot) -> None:
+    """Registra comandos visíveis no menu do Telegram sem impedir startup."""
+    commands = [
+        BotCommand(command="start", description="tutorial rápido do moderador"),
+        BotCommand(command="help", description="lista comandos e recursos"),
+        BotCommand(command="tigrao", description="abrir painel de moderação"),
+        BotCommand(command="captcha", description="responder captcha de entrada"),
+    ]
+    try:
+        await bot_obj.set_my_commands(commands)
+        logger.info("telegram_commands_set count=%s", len(commands))
+    except Exception:
+        logger.exception("telegram_commands_set_failed")
 
 @app.get("/healthz", status_code=200)
 def healthz() -> dict[str, str]:
@@ -104,6 +120,7 @@ async def on_startup() -> None:
     bot = Bot(TELEGRAM_BOT_TOKEN)
     dispatcher = Dispatcher()
     tigrao_plugin = build_tigrao_fsm_plugin(dispatcher=dispatcher)
+    await _set_bot_commands_safe(bot)
     if SET_WEBHOOK_ON_STARTUP and BASE_URL:
         webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
         await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET or None, allowed_updates=ALLOWED_UPDATES)
