@@ -1,0 +1,5 @@
+FASE31 OK
+- Mini App agora usa seletor/dropdown expansível de grupos.
+- Lista longa de grupos não fica mais em sequência aberta por padrão.
+- Viewport ajustada para reduzir zoom e preencher a tela do Telegram WebApp.
+- Validação: compileall OK; pytest 102 passed.

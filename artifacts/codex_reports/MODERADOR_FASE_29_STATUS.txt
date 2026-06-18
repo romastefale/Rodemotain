@@ -1,0 +1,4 @@
+FASE29_OK=true
+BASE=tigrao-moderador-bot-fase28.zip
+VALIDATION=python -m compileall -q app tests && pytest -q
+PYTEST_RESULT=98 passed

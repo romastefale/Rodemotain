@@ -11,11 +11,14 @@ def test_phase22_join_webapp_uses_bot_profile_icon_and_custom_group_buttons() ->
 
     assert 'src="/telegram/bot-icon"' in html
     assert 'id="botIcon"' in html
-    assert 'id="groupList"' in html
-    assert 'role="radiogroup"' in html
+    assert 'id="groupPickerButton"' in html
+    assert 'id="groupMenu"' in html
+    assert 'role="combobox"' in html
+    assert 'role="listbox"' in html
     assert "group-option" in js
-    assert 'setAttribute("role", "radio")' in js
+    assert 'setAttribute("role", "option")' in js
     assert "setSelectedGroup" in js
+    assert "toggleGroupMenu" in js
     assert "selected_chat_id: selectedGroupId()" in js
     assert "choice-dot" in html
     assert 'input[type="checkbox"]' in css

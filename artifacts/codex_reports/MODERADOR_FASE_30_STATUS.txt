@@ -1,0 +1,6 @@
+FASE=30
+BASE=tigrao-moderador-bot-fase29.zip
+STATUS=OK
+COMPILE=OK
+TESTS=100 passed
+MUDANCAS=remove-topicos-interface;renomeia-link-principal;favicon;log-update-unhandled

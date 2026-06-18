@@ -31,6 +31,7 @@ CALLBACK_ACTIONS = frozenset({
     "log_err",
     "join",
     "join_link",
+    "join_link_direct",
     "join_auto",
     "join_pending",
     "join_accept",
@@ -42,7 +43,6 @@ CALLBACK_ACTIONS = frozenset({
     "cat_msg",
     "cat_admin",
     "cat_links",
-    "cat_topics",
     "cat_group",
     "cat_prot",
     "cat_react",
@@ -56,10 +56,6 @@ CALLBACK_ACTIONS = frozenset({
     "sub_admin_sender",
     "sub_links_manage",
     "sub_links_danger",
-    "sub_topics_create",
-    "sub_topics_restore",
-    "sub_topics_lock",
-    "sub_topics_delete",
     "sub_group_restore",
     "sub_group_profile",
     "sub_group_danger",
@@ -96,18 +92,6 @@ CALLBACK_ACTIONS = frozenset({
     "linkrevoke",
     "setphoto",
     "delphoto",
-    "topiccreate",
-    "topicedit",
-    "topicclose",
-    "topicreopen",
-    "topicdelete",
-    "topicunpin",
-    "topicgclose",
-    "topicgreopen",
-    "topicgedit",
-    "topicghide",
-    "topicgunhide",
-    "topicgunpin",
     "settag",
     "warnadd",
     "warnlist",
@@ -298,11 +282,11 @@ def group_admin_keyboard(
     if destructive_actions_enabled:
         # Primeiro bloco: navegação positiva/consulta/restauração.
         rows.extend([
-            [button("✅ 👤 Usuários", make_callback(session_id, "cat_user"), style="success"), button("✅ 🔗 Links", make_callback(session_id, "cat_links"), style="success")],
-            [button("✅ 🧩 Tópicos", make_callback(session_id, "cat_topics"), style="success"), button("🧾 Auditoria", make_callback(session_id, "cat_audit"), style="primary")],
+            [button("👤 Usuários", make_callback(session_id, "cat_user"), style="success"), button("🔗 Links", make_callback(session_id, "cat_links"), style="success")],
+            [button("🧾 Auditoria", make_callback(session_id, "cat_audit"), style="primary")],
             # Segundo bloco: ações de maior risco, visualmente agrupadas.
-            [button("🚫 💬 Mensagens", make_callback(session_id, "cat_msg"), style="danger"), button("🚫 👑 Admins", make_callback(session_id, "cat_admin"), style="danger")],
-            [button("🚫 🎛️ Grupo", make_callback(session_id, "cat_group"), style="danger"), button("🚨 🛡️ Proteções", make_callback(session_id, "cat_prot"), style="danger")],
+            [button("💬 Mensagens", make_callback(session_id, "cat_msg"), style="danger"), button("👑 Admins", make_callback(session_id, "cat_admin"), style="danger")],
+            [button("🎛️ Grupo", make_callback(session_id, "cat_group"), style="danger"), button("🛡️ Proteções", make_callback(session_id, "cat_prot"), style="danger")],
         ])
     danger_tail: list[TigraoButtonSpec] = []
     if ddx_enabled:
@@ -320,37 +304,31 @@ def group_admin_keyboard(
 _ACTION_CATEGORY_ROWS: dict[str, list[list[tuple[str, str, ButtonStyle]]]] = {
     # Categorias iniciais: mostram subcategorias, não uma lista longa de comandos.
     "cat_user": [
-        [("✅ Liberar/restaurar", "sub_user_restore", "success")],
-        [("🚫 Restringir usuário", "sub_user_restrict", "danger")],
+        [("🔓 Liberar/restaurar", "sub_user_restore", "success")],
+        [("🔒 Restringir usuário", "sub_user_restrict", "danger")],
         [("⚠️ Warnings e tags", "sub_user_warn", "danger")],
     ],
     "cat_msg": [
-        [("✅ Fixar/organizar", "sub_msg_fix", "success")],
+        [("📌 Fixar/organizar", "sub_msg_fix", "success")],
         [("🗑️ Apagar/limpar", "sub_msg_delete", "danger")],
     ],
     "cat_admin": [
         [("👑 Cargos de admin", "sub_admin_role", "danger")],
-        [("✅ Sender: desbanir", "sub_admin_sender", "success")],
-        [("🚫 Sender: banir", "bansender", "danger")],
+        [("📡 Sender: desbanir", "sub_admin_sender", "success")],
+        [("📡 Sender: banir", "bansender", "danger")],
         [("🧾 Auditar admins/bots", "admins", "primary")],
     ],
     "cat_links": [
-        [("✅ Exportar/criar", "sub_links_manage", "success")],
-        [("🚫 Editar/revogar", "sub_links_danger", "danger")],
-    ],
-    "cat_topics": [
-        [("✅ Reabrir/reexibir", "sub_topics_restore", "success")],
-        [("➕ Criar/editar", "sub_topics_create", "primary")],
-        [("🚫 Fechar/ocultar", "sub_topics_lock", "danger")],
-        [("🗑️ Apagar/limpar", "sub_topics_delete", "danger")],
+        [("🔑 Gerar/criar", "sub_links_manage", "success")],
+        [("🔗 Editar/revogar", "sub_links_danger", "danger")],
     ],
     "cat_group": [
-        [("✅ Reabrir grupo", "sub_group_restore", "success")],
+        [("🔓 Reabrir grupo", "sub_group_restore", "success")],
         [("✏️ Perfil do grupo", "sub_group_profile", "primary")],
-        [("🚫 Fechar/remover", "sub_group_danger", "danger")],
+        [("🔒 Fechar/remover", "sub_group_danger", "danger")],
     ],
     "cat_prot": [
-        [("✅ Ver status", "sub_prot_status", "success")],
+        [("📊 Ver status", "sub_prot_status", "success")],
         [("🚨 Anti-spam/entrada", "sub_prot_rules", "danger")],
         [("🧨 DDX hard", "ddx", "danger")],
     ],
@@ -365,10 +343,10 @@ _ACTION_CATEGORY_ROWS: dict[str, list[list[tuple[str, str, ButtonStyle]]]] = {
 
     # Subcategorias: ações finais, agrupadas por intenção e risco.
     "sub_user_restore": [
-        [("✅ Desbanir", "unban", "success"), ("🔊 Desmutar", "unmute", "success")],
+        [("🔓 Desbanir", "unban", "success"), ("🔊 Desmutar", "unmute", "success")],
     ],
     "sub_user_restrict": [
-        [("🚫 Banir", "ban", "danger"), ("⏱️ Ban por tempo", "bantime", "danger")],
+        [("🔨 Banir", "ban", "danger"), ("⏱️ Ban por tempo", "bantime", "danger")],
         [("🔇 Mutar 1h", "mute1h", "danger"), ("🔇 Mutar 24h", "mute24h", "danger")],
         [("🔇 Mutar indef.", "muteforever", "danger"), ("⏱️ Mute livre", "mutetime", "danger")],
     ],
@@ -392,28 +370,12 @@ _ACTION_CATEGORY_ROWS: dict[str, list[list[tuple[str, str, ButtonStyle]]]] = {
         [("📡 Desbanir sender", "unbansender", "success")],
     ],
     "sub_links_manage": [
-        [("🔑 Exportar primário", "linkexport", "primary")],
-        [("➕ Criar link", "linkcreate", "primary")],
+        [("🔑 Gerar novo link principal", "linkexport", "danger")],
+        [("➕ Criar link adicional", "linkcreate", "success")],
     ],
     "sub_links_danger": [
         [("✏️ Editar link", "linkedit", "danger")],
         [("🧨 Revogar link", "linkrevoke", "danger")],
-    ],
-    "sub_topics_create": [
-        [("➕ Criar tópico", "topiccreate", "primary"), ("✏️ Editar tópico", "topicedit", "primary")],
-        [("✏️ Renomear geral", "topicgedit", "primary")],
-    ],
-    "sub_topics_restore": [
-        [("🔓 Reabrir tópico", "topicreopen", "success"), ("🔓 Reabrir geral", "topicgreopen", "success")],
-        [("👁️ Reexibir geral", "topicgunhide", "success")],
-    ],
-    "sub_topics_lock": [
-        [("🔒 Fechar tópico", "topicclose", "danger"), ("🔒 Fechar geral", "topicgclose", "danger")],
-        [("🙈 Ocultar geral", "topicghide", "danger")],
-    ],
-    "sub_topics_delete": [
-        [("🗑️ Apagar tópico", "topicdelete", "danger")],
-        [("📌 Limpar fixados", "topicunpin", "danger"), ("📌 Limpar fixados geral", "topicgunpin", "danger")],
     ],
     "sub_group_restore": [
         [("🔓 Reabrir grupo", "unlock", "success")],
@@ -448,10 +410,6 @@ _ACTION_CATEGORY_PARENTS: dict[str, str] = {
     "sub_admin_sender": "cat_admin",
     "sub_links_manage": "cat_links",
     "sub_links_danger": "cat_links",
-    "sub_topics_create": "cat_topics",
-    "sub_topics_restore": "cat_topics",
-    "sub_topics_lock": "cat_topics",
-    "sub_topics_delete": "cat_topics",
     "sub_group_restore": "cat_group",
     "sub_group_profile": "cat_group",
     "sub_group_danger": "cat_group",
@@ -461,32 +419,27 @@ _ACTION_CATEGORY_PARENTS: dict[str, str] = {
 }
 
 _ACTION_CATEGORY_TITLES: dict[str, str] = {
-    "cat_user": "✅👤 Usuários",
-    "cat_msg": "🚫💬 Mensagens",
-    "cat_admin": "🚫👑 Administradores",
-    "cat_links": "✅🔗 Links de convite",
-    "cat_topics": "✅🧩 Tópicos/fórum",
-    "cat_group": "🚫🎛️ Dados do grupo",
-    "cat_prot": "🚨🛡️ Proteções automáticas",
+    "cat_user": "👤 Usuários",
+    "cat_msg": "💬 Mensagens",
+    "cat_admin": "👑 Administradores",
+    "cat_links": "🔗 Links de convite",
+    "cat_group": "🎛️ Dados do grupo",
+    "cat_prot": "🛡️ Proteções automáticas",
     "cat_react": "⚛️ Reações",
     "cat_audit": "🧾 Auditoria",
-    "sub_user_restore": "✅👤 Usuários — liberar/restaurar",
-    "sub_user_restrict": "🚫👤 Usuários — restringir",
+    "sub_user_restore": "👤 Usuários — liberar/restaurar",
+    "sub_user_restrict": "👤 Usuários — restringir",
     "sub_user_warn": "⚠️👤 Usuários — warnings e tags",
-    "sub_msg_fix": "✅💬 Mensagens — fixar/organizar",
+    "sub_msg_fix": "💬 Mensagens — fixar/organizar",
     "sub_msg_delete": "🗑️💬 Mensagens — apagar/limpar",
-    "sub_admin_role": "🚫👑 Admins — cargos e títulos",
-    "sub_admin_sender": "✅👑 Admins — sender chat/canal",
-    "sub_links_manage": "✅🔗 Links — exportar/criar",
-    "sub_links_danger": "🚫🔗 Links — editar/revogar",
-    "sub_topics_create": "➕🧩 Tópicos — criar/editar",
-    "sub_topics_restore": "✅🧩 Tópicos — reabrir/reexibir",
-    "sub_topics_lock": "🚫🧩 Tópicos — fechar/ocultar",
-    "sub_topics_delete": "🗑️🧩 Tópicos — apagar/limpar",
-    "sub_group_restore": "✅🎛️ Grupo — reabrir",
+    "sub_admin_role": "👑 Admins — cargos e títulos",
+    "sub_admin_sender": "👑 Admins — sender chat/canal",
+    "sub_links_manage": "🔗 Links — gerar/criar",
+    "sub_links_danger": "🔗 Links — editar/revogar",
+    "sub_group_restore": "🎛️ Grupo — reabrir",
     "sub_group_profile": "✏️🎛️ Grupo — perfil",
-    "sub_group_danger": "🚫🎛️ Grupo — fechar/remover",
-    "sub_prot_status": "✅🛡️ Proteções — status",
+    "sub_group_danger": "🎛️ Grupo — fechar/remover",
+    "sub_prot_status": "🛡️ Proteções — status",
     "sub_prot_rules": "🚨🛡️ Proteções — regras automáticas",
     "sub_react_delete": "🗑️⚛️ Reações — remover",
 }
@@ -520,10 +473,10 @@ def action_category_keyboard(session_id: str, category: str) -> list[list[Tigrao
 
 def destructive_actions_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("✅ 👤 Usuários", make_callback(session_id, "cat_user"), style="success"), button("✅ 🔗 Links", make_callback(session_id, "cat_links"), style="success")],
-        [button("✅ 🧩 Tópicos", make_callback(session_id, "cat_topics"), style="success"), button("🧾 Auditoria", make_callback(session_id, "cat_audit"), style="primary")],
-        [button("🚫 💬 Mensagens", make_callback(session_id, "cat_msg"), style="danger"), button("🚫 👑 Admins", make_callback(session_id, "cat_admin"), style="danger")],
-        [button("🚫 🎛️ Grupo", make_callback(session_id, "cat_group"), style="danger"), button("🚨 🛡️ Proteções", make_callback(session_id, "cat_prot"), style="danger")],
+        [button("👤 Usuários", make_callback(session_id, "cat_user"), style="success"), button("🔗 Links", make_callback(session_id, "cat_links"), style="success")],
+        [button("🧾 Auditoria", make_callback(session_id, "cat_audit"), style="primary")],
+        [button("💬 Mensagens", make_callback(session_id, "cat_msg"), style="danger"), button("👑 Admins", make_callback(session_id, "cat_admin"), style="danger")],
+        [button("🎛️ Grupo", make_callback(session_id, "cat_group"), style="danger"), button("🛡️ Proteções", make_callback(session_id, "cat_prot"), style="danger")],
         [button("🧨 DDX hard", make_callback(session_id, "ddx"), style="danger"), button("⚛️ Reações", make_callback(session_id, "cat_react"), style="danger")],
         [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary"), button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
@@ -532,9 +485,10 @@ def destructive_actions_keyboard(session_id: str) -> list[list[TigraoButtonSpec]
 def join_requests_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
         [button("🕒 Ver pendentes 2h", make_callback(session_id, "join_pending"), style="primary")],
-        [button("✅ Aceitar ID pendente", make_callback(session_id, "join_accept"), style="success")],
-        [button("🚫 Recusar ID pendente", make_callback(session_id, "join_decline"), style="danger")],
+        [button("📥 Aceitar ID pendente", make_callback(session_id, "join_accept"), style="success")],
+        [button("📤 Recusar ID pendente", make_callback(session_id, "join_decline"), style="danger")],
         [button("🔗 Criar link com solicitação", make_callback(session_id, "join_link"), style="primary")],
+        [button("🔗 Criar link direto", make_callback(session_id, "join_link_direct"), style="success")],
         [button("⚙️ Autorizações automáticas", make_callback(session_id, "join_auto"), style="primary")],
         [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary")],
         [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
@@ -543,7 +497,7 @@ def join_requests_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
 
 def join_auto_question_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("✅ Sim, informar IDs", make_callback(session_id, "join_auto"), style="success")],
+        [button("📝 Sim, informar IDs", make_callback(session_id, "join_auto"), style="success")],
         [button("🔗 Não, só criar link", make_callback(session_id, "join_noauto"), style="primary")],
         [button("⬅️ Voltar", make_callback(session_id, "join"), style="primary")],
         [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
@@ -563,7 +517,7 @@ def logs_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
 
 def confirm_cancel_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("✅ Confirmar", make_callback(session_id, "confirm"), style="success")],
+        [button("Confirmar", make_callback(session_id, "confirm"), style="success")],
         [button("↩️ Cancelar", make_callback(session_id, "cancel"), style="primary")],
         [button("⬅️ Painel principal", make_callback(session_id, "panel"), style="primary")],
         [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
@@ -580,8 +534,8 @@ def post_action_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
 
 def ddx_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("✅ Ativar DDX", make_callback(session_id, "ddxon"), style="success")],
-        [button("🚫 Desativar DDX", make_callback(session_id, "ddxoff"), style="danger")],
+        [button("Ativar DDX", make_callback(session_id, "ddxon"), style="success")],
+        [button("Desativar DDX", make_callback(session_id, "ddxoff"), style="danger")],
         [button("➕ Adicionar filtro", make_callback(session_id, "ddxadd"), style="primary")],
         [button("📋 Listar filtros", make_callback(session_id, "ddxlist"), style="primary")],
         [button("🗑️ Remover filtro", make_callback(session_id, "ddxremove"), style="danger")],

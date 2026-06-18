@@ -352,7 +352,7 @@ Se `/healthz` responder, verifique:
 - se o bot recebeu o deploy mais recente;
 - se o bot tem permissão de administrador no grupo.
 
-Se o log mostrar `Update ... is not handled`, significa que o Telegram chegou até o servidor, mas aquele tipo de update não foi tratado pelo bot. Para os comandos principais, teste `/start` e `/help` no privado.
+Se o log mostrar `Update ... is not handled`, significa que o Telegram chegou até o servidor, mas aquele tipo de update não foi tratado pelo bot. A partir desta versão, o backend também registra `telegram_update_unhandled` com o tipo do update quando o dispatcher retornar não tratado, facilitando auditoria sem expor dados sensíveis. Para os comandos principais, teste `/start` e `/help` no privado.
 
 ## Segurança operacional
 
@@ -391,8 +391,7 @@ O painel do Rodemotain é organizado por categorias para evitar listas longas de
 - 👤 Usuários: ban, mute, desmute, advertências e tag de membro.
 - 💬 Mensagens: apagar mensagem, purge, fixar e desfixar.
 - 👑 Admins: auditoria, promover/rebaixar e título customizado.
-- 🔗 Links: criar, editar, exportar e revogar links de convite.
-- 🧩 Tópicos: funções de fórum e tópico geral.
+- 🔗 Links: gerar novo link principal do bot, criar link direto, criar link com solicitação, editar e revogar links de convite criados pelo bot.
 - 🎛️ Grupo: título, descrição, foto e fechamento/reabertura do grupo.
 - 🛡️ Proteções: anti-flood, anti-raid, captcha, DDX e status.
 - ⚛️ Reações: remoção de reações.

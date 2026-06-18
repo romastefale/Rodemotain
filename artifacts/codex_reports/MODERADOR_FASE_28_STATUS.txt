@@ -1,0 +1,5 @@
+FASE_28_STATUS=OK
+TESTS=98 passed
+COMPILEALL=OK
+BASE=Fase27
+OUTPUT=tigrao-moderador-bot-fase28.zip

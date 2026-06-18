@@ -122,7 +122,7 @@ def selected_session():
 
 def test_confirm_keyboard_offers_panel_and_close():
     labels = [btn.text for row in confirm_cancel_keyboard("abc123") for btn in row]
-    assert "✅ Confirmar" in labels
+    assert "Confirmar" in labels
     assert "↩️ Cancelar" in labels
     assert "⬅️ Painel principal" in labels
     assert "✖️ Fechar" in labels

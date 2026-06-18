@@ -609,8 +609,8 @@ async def export_primary_invite_link(bot: Any, *, chat_id: int, chat_title: str,
         detail = f"Falha Telegram: {exc}"
         _log(action="export_invite_link", result="falhou", detail=detail, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id)
         return AdvancedActionResult(False, "falhou", detail)
-    detail = f"Link primário exportado/renovado pelo bot:\n{link}"
-    _log(action="export_invite_link", result="concluido", detail="Link primário exportado/renovado.", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, metadata={"invite_link": str(link)})
+    detail = f"Novo link principal do bot gerado:\n{link}"
+    _log(action="export_invite_link", result="concluido", detail="Novo link principal do bot gerado.", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, metadata={"invite_link": str(link)})
     return AdvancedActionResult(True, "concluido", detail)
 
 

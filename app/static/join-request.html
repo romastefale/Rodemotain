@@ -2,7 +2,8 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="format-detection" content="telephone=no" />
   <title>Rodemotain · Solicitação de entrada</title>
   <link rel="stylesheet" href="/static/join-request.css" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -20,13 +21,22 @@
       </div>
     </header>
 
-    <section class="field">
+    <section class="field group-field">
       <label id="groupLabel">Grupo</label>
       <select id="groupSelect" class="sr-only" aria-hidden="true" tabindex="-1" disabled>
         <option>Carregando grupos...</option>
       </select>
-      <div id="groupList" class="group-list" role="radiogroup" aria-labelledby="groupLabel">
-        <div class="group-empty">Carregando grupos...</div>
+      <div id="groupPicker" class="group-picker">
+        <button id="groupPickerButton" class="group-picker-button" type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="groupMenu" aria-labelledby="groupLabel groupPickerText" disabled>
+          <span class="group-picker-icon" aria-hidden="true">▾</span>
+          <span class="group-picker-copy">
+            <span id="groupPickerText" class="group-picker-title">Carregando grupos...</span>
+            <span id="groupPickerMeta" class="group-picker-meta">Aguarde</span>
+          </span>
+        </button>
+        <div id="groupMenu" class="group-menu" role="listbox" aria-labelledby="groupLabel" hidden>
+          <div class="group-empty">Carregando grupos...</div>
+        </div>
       </div>
       <small id="groupHint">Selecione o grupo em que você quer entrar.</small>
     </section>

@@ -72,6 +72,38 @@ def _extract_user_id(update: Update) -> int | None:
     return None
 
 
+def _payload_update_type(data: dict[str, Any]) -> str:
+    for key in (
+        "message",
+        "edited_message",
+        "channel_post",
+        "edited_channel_post",
+        "callback_query",
+        "inline_query",
+        "chosen_inline_result",
+        "chat_join_request",
+        "my_chat_member",
+        "chat_member",
+        "message_reaction",
+        "message_reaction_count",
+        "chat_boost",
+        "removed_chat_boost",
+    ):
+        if data.get(key) is not None:
+            return key
+    return "unknown"
+
+
+def _looks_unhandled_feed_result(result: Any) -> bool:
+    try:
+        from aiogram.dispatcher.event.bases import UNHANDLED  # type: ignore
+        if result is UNHANDLED:
+            return True
+    except Exception:
+        pass
+    rendered = f"{result!r}".upper()
+    return "UNHANDLED" in rendered
+
 
 
 async def _set_bot_commands_safe(bot_obj: Bot) -> None:
@@ -118,6 +150,12 @@ async def telegram_bot_icon() -> Response:
         if icon_path is not None and icon_path.exists():
             return FileResponse(icon_path, media_type=media_type_for_icon(icon_path))
     return Response(content=fallback_bot_icon_svg(), media_type="image/svg+xml")
+
+
+@app.get("/favicon.ico")
+async def favicon() -> Response:
+    """Evita 404 em navegadores que abrem o Mini App fora do Telegram."""
+    return await telegram_bot_icon()
 
 
 @app.get("/join-request")
@@ -280,7 +318,13 @@ async def telegram_webhook(request: Request) -> Response:
         except Exception:
             logger.exception("tigrao_before_dispatch_failed")
     if not consumed:
-        await dispatcher.feed_update(bot, update)
+        result = await dispatcher.feed_update(bot, update)
+        if _looks_unhandled_feed_result(result):
+            logger.info(
+                "telegram_update_unhandled update_id=%s type=%s",
+                data.get("update_id"),
+                _payload_update_type(data),
+            )
     return Response(status_code=200)
 
 

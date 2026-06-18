@@ -143,12 +143,15 @@ def test_etapa02_parsers_and_buttons() -> None:
     assert parse_captcha_setting("on | 5m | 3").config["max_attempts"] == 3
 
     for action in (
-        "setphoto", "delphoto", "topiccreate", "topicedit", "topicclose", "topicreopen",
-        "topicdelete", "topicunpin", "topicgedit", "topicgclose", "topicgreopen", "topicghide",
-        "topicgunhide", "topicgunpin", "settag", "warnadd", "warnlist", "warnclear",
+        "setphoto", "delphoto", "settag", "warnadd", "warnlist", "warnclear",
         "protstatus", "antiflood", "antiraid", "captcha",
     ):
         assert action in CALLBACK_ACTIONS
+    for removed_action in (
+        "topiccreate", "topicedit", "topicclose", "topicreopen", "topicdelete", "topicunpin",
+        "topicgedit", "topicgclose", "topicgreopen", "topicghide", "topicgunhide", "topicgunpin",
+    ):
+        assert removed_action not in CALLBACK_ACTIONS
 
 
 def test_etapa02_storage_warnings_protection_and_captcha(isolated_storage) -> None:

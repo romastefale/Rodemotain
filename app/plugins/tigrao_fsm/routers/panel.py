@@ -268,6 +268,27 @@ async def _send_flow_result(message: Message, bot: Any, session: Any, text: str)
     await _delete_flow_prompt(bot, session)
     await message.answer(text, reply_markup=to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
 
+
+def _extract_invite_link(text: str) -> str | None:
+    for token in str(text or "").replace("\n", " ").split():
+        clean = token.strip(" <>.,;()[]{}\"'")
+        if clean.startswith("https://t.me/") or clean.startswith("http://t.me/") or clean.startswith("t.me/"):
+            return clean
+    return None
+
+
+async def _send_persistent_invite_link(callback: CallbackQuery, *, chat_title: str, link: str, label: str) -> None:
+    """Envia o link em mensagem individual separada, fora do fluxo apagável/editável."""
+    message = getattr(callback, "message", None)
+    if message is None or not hasattr(message, "answer"):
+        return
+    text = f"{label}\nGrupo: {chat_title}\n\n{link}"
+    try:
+        await message.answer(text)
+    except Exception:
+        logger.debug("RODEMOTAIN_PERSISTENT_INVITE_LINK_SEND_FAILED", exc_info=True)
+
+
 def _home_markup(session_id: str) -> Any:
     return to_inline_keyboard_markup(home_keyboard(session_id))
 
@@ -573,7 +594,9 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
     elif action == "join":
         await _show_join_menu(callback, session_id)
     elif action == "join_link":
-        await _create_join_link(callback, bot, session)
+        await _create_join_link(callback, bot, session, creates_join_request=True)
+    elif action == "join_link_direct":
+        await _create_join_link(callback, bot, session, creates_join_request=False)
     elif action == "join_noauto":
         await _show_join_menu(callback, session_id, "Link criado sem autoaceite adicional.")
     elif action == "join_auto":
@@ -596,11 +619,11 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
         await _prompt_destructive_user(callback, session, action)
     elif action == "delmsg":
         await _prompt_delete_message(callback, session)
-    elif action in {"bantime", "mutetime", "purge", "pin", "unpin", "settitle", "setdesc", "react1", "reactall", "promote", "demote", "admintitle", "bansender", "unbansender", "linkcreate", "linkedit", "linkrevoke", "setphoto", "topiccreate", "topicedit", "topicclose", "topicreopen", "topicdelete", "topicunpin", "topicgedit", "settag", "warnadd", "warnlist", "warnclear", "antiflood", "antiraid", "captcha"}:
+    elif action in {"bantime", "mutetime", "purge", "pin", "unpin", "settitle", "setdesc", "react1", "reactall", "promote", "demote", "admintitle", "bansender", "unbansender", "linkcreate", "linkedit", "linkrevoke", "setphoto", "settag", "warnadd", "warnlist", "warnclear", "antiflood", "antiraid", "captcha"}:
         await _prompt_advanced_text(callback, session, action)
     elif action in {"admins", "protstatus"}:
         await _execute_advanced_no_text(callback, bot, session, action)
-    elif action in {"lock", "unlock", "unpinall", "linkexport", "delphoto", "topicgclose", "topicgreopen", "topicghide", "topicgunhide", "topicgunpin"}:
+    elif action in {"lock", "unlock", "unpinall", "linkexport", "delphoto"}:
         await _prepare_advanced_confirmation(callback, bot, session, action)
     elif action == "confirm":
         await _confirm_pending_action(callback, bot, session)
@@ -736,7 +759,6 @@ async def _show_selected_group_panel(callback: CallbackQuery, bot: Any, session:
         f"Alterar informações: {yesno(perms.can_change_info)}\n"
         f"Promover admins: {yesno(perms.can_promote_members)}\n"
         f"Tags: {yesno(perms.can_manage_tags)}\n"
-        f"Tópicos: {yesno(perms.can_manage_topics)}\n"
         f"Vídeo chats: {yesno(perms.can_manage_video_chats)}\n"
         f"Canais — postar/editar: {yesno(perms.can_post_messages or perms.can_edit_messages)}\n"
         f"DMs de canal: {yesno(perms.can_manage_direct_messages)}"
@@ -771,16 +793,20 @@ async def _show_join_menu(callback: CallbackQuery, session_id: str, prefix: str 
     await _safe_edit(callback, text, to_inline_keyboard_markup(join_requests_keyboard(session_id)))
 
 
-async def _create_join_link(callback: CallbackQuery, bot: Any, session: Any) -> None:
+async def _create_join_link(callback: CallbackQuery, bot: Any, session: Any, *, creates_join_request: bool) -> None:
     chat_id, title, error = _selected_group_or_text(session)
     if error:
         await _safe_edit(callback, error, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
+    mode_label = "Link com solicitação" if creates_join_request else "Link direto de entrada"
     try:
         perms = await get_bot_permissions(bot, chat_id)
         if not perms.is_admin or not perms.can_invite_users:
             raise PermissionError("bot sem can_invite_users")
-        invite = await create_join_request_link(bot, chat_id, name="Rodemotain")
+        if creates_join_request:
+            invite = await create_join_request_link(bot, chat_id, name="Rodemotain")
+        else:
+            invite = await bot.create_chat_invite_link(chat_id=chat_id, name="Rodemotain direto", creates_join_request=False)
     except Exception as exc:
         storage.log_event(
             action="join_link_create",
@@ -791,11 +817,15 @@ async def _create_join_link(callback: CallbackQuery, bot: Any, session: Any) -> 
             chat_title=title,
             actor_user_id=session.moderator_user_id or session.owner_user_id,
             details=str(exc),
+            metadata={"creates_join_request": creates_join_request},
         )
-        await _safe_edit(callback, f"Falha ao criar link com solicitação: {exc}", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit(callback, f"Falha ao criar {mode_label.lower()}: {exc}", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
     link = getattr(invite, "invite_link", None) or getattr(invite, "link", None) or str(invite)
-    session.payload["last_invite_link"] = link
+    if creates_join_request:
+        session.payload["last_invite_link"] = link
+    else:
+        session.payload.pop("last_invite_link", None)
     storage.log_event(
         action="join_link_create",
         result="criado",
@@ -804,11 +834,17 @@ async def _create_join_link(callback: CallbackQuery, bot: Any, session: Any) -> 
         chat_id=chat_id,
         chat_title=title,
         actor_user_id=session.moderator_user_id or session.owner_user_id,
-        details="Link com solicitação criado.",
-        metadata={"invite_link": link},
+        details=f"{mode_label} criado.",
+        metadata={"invite_link": link, "creates_join_request": creates_join_request},
     )
-    text = f"Link criado com solicitação.\n\n{link}\n\nDeseja ativar autoaceite para IDs específicos?"
-    await _safe_edit(callback, text, to_inline_keyboard_markup(join_auto_question_keyboard(session.session_id)))
+    await _send_persistent_invite_link(callback, chat_title=title, link=link, label=mode_label)
+    if creates_join_request:
+        text = "Link com solicitação criado e enviado em mensagem individual.\n\nDeseja ativar autoaceite para IDs específicos?"
+        await _safe_edit(callback, text, to_inline_keyboard_markup(join_auto_question_keyboard(session.session_id)))
+    else:
+        session.payload["nav_back"] = "join"
+        text = "Link direto de entrada criado e enviado em mensagem individual.\n\nEsse link não passa por solicitação de entrada."
+        await _safe_edit(callback, text, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
 async def _join_auto_or_list(callback: CallbackQuery, session: Any) -> None:
@@ -1000,7 +1036,7 @@ async def _show_action_category(callback: CallbackQuery, session: Any, category:
     session.payload["nav_back"] = parent or "act"
     title_text = action_category_title(category)
     help_text = (
-        "Escolha uma subcategoria. Botões com ✅ agrupam liberação/restauração; botões com 🚫/🗑️ agrupam ações restritivas ou destrutivas."
+        "Escolha uma subcategoria. A cor do botão indica o risco: verde para ações de liberação/restauração, vermelho para ações restritivas ou destrutivas."
         if parent is None
         else "Escolha a função. Quando a ação alterar o grupo ou afetar um usuário, o painel pedirá confirmação."
     )
@@ -1038,24 +1074,12 @@ _ACTION_LABELS = {
     "admintitle": "Título customizado de admin",
     "bansender": "Banir sender chat/canal",
     "unbansender": "Desbanir sender chat/canal",
-    "linkexport": "Exportar link primário",
-    "linkcreate": "Criar link completo",
+    "linkexport": "Gerar novo link principal do bot",
+    "linkcreate": "Criar link adicional",
     "linkedit": "Editar link",
     "linkrevoke": "Revogar link",
     "setphoto": "Alterar foto do grupo",
     "delphoto": "Remover foto do grupo",
-    "topiccreate": "Criar tópico",
-    "topicedit": "Editar tópico",
-    "topicclose": "Fechar tópico",
-    "topicreopen": "Reabrir tópico",
-    "topicdelete": "Apagar tópico",
-    "topicunpin": "Limpar fixados do tópico",
-    "topicgclose": "Fechar tópico geral",
-    "topicgreopen": "Reabrir tópico geral",
-    "topicgedit": "Renomear tópico geral",
-    "topicghide": "Ocultar tópico geral",
-    "topicgunhide": "Reexibir tópico geral",
-    "topicgunpin": "Limpar fixados do tópico geral",
     "settag": "Tag real de membro",
     "warnadd": "Advertir usuário",
     "warnlist": "Listar advertências",
@@ -1328,14 +1352,6 @@ async def _execute_pending_advanced_action(callback: CallbackQuery, bot: Any, se
             result = AdvancedActionResult(False, "falhou", f"Falha ao preparar foto confirmada: {exc}")
     elif action == "delphoto":
         result = await delete_group_photo(bot, chat_id=chat_id, chat_title=title, actor_user_id=actor, permissions=perms)
-    elif action == "topiccreate":
-        result = await create_forum_topic_action(bot, chat_id=chat_id, chat_title=title, actor_user_id=actor, name=str(pending.get("name") or ""), icon_color=pending.get("icon_color"), permissions=perms)
-    elif action == "topicedit":
-        result = await edit_forum_topic_action(bot, chat_id=chat_id, chat_title=title, actor_user_id=actor, message_thread_id=int(pending.get("message_thread_id") or 0), name=str(pending.get("name") or ""), icon_color=pending.get("icon_color"), permissions=perms)
-    elif action in {"topicclose", "topicreopen", "topicdelete", "topicunpin"}:
-        result = await manage_forum_topic_action(bot, chat_id=chat_id, chat_title=title, actor_user_id=actor, action=action, message_thread_id=int(pending.get("message_thread_id") or 0), permissions=perms)
-    elif action in {"topicgclose", "topicgreopen", "topicghide", "topicgunhide", "topicgunpin", "topicgedit"}:
-        result = await manage_general_forum_topic_action(bot, chat_id=chat_id, chat_title=title, actor_user_id=actor, action=action, permissions=perms, name=pending.get("name"))
     elif action == "settag":
         result = await set_member_tag_action(bot, chat_id=chat_id, chat_title=title, actor_user_id=actor, user_id=int(pending.get("user_id") or 0), tag=str(pending.get("tag") or ""), permissions=perms)
     elif action == "warnadd":
@@ -1352,6 +1368,10 @@ async def _execute_pending_advanced_action(callback: CallbackQuery, bot: Any, se
     session.selected_action = None
     session.waiting_for = None
     session.payload["nav_back"] = _action_back_target(session)
+    if result.ok and action in {"linkexport", "linkcreate"}:
+        link = _extract_invite_link(result.detail)
+        if link:
+            await _send_persistent_invite_link(callback, chat_title=title, link=link, label="Link de entrada gerado")
     await _safe_edit(callback, f"Resultado: {result.result}\n{result.detail}\n\nDeseja voltar ao painel principal ou fechar?", to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
 
 
@@ -1386,17 +1406,19 @@ _ADVANCED_PROMPTS = {
     "promote": (
         "Promover administrador\n\n"
         "Envie: user_id | perfil\n"
-        "Perfis: leve, moderador, admin, total. Também aceita flags: delete, restrict, invite, pin, info, topics, tags, promote."
+        "Perfis: leve, moderador, admin, total. Também aceita flags: delete, restrict, invite, pin, info, tags, promote."
     ),
     "demote": "Rebaixar administrador\n\nEnvie o user_id do administrador que deve ser rebaixado.",
     "admintitle": "Título customizado de admin\n\nEnvie: user_id | título. Máximo 16 caracteres, sem emoji. Use título vazio para limpar.",
     "bansender": "Banir sender chat/canal\n\nEnvie o sender_chat_id do canal/chat que envia como identidade.",
     "unbansender": "Desbanir sender chat/canal\n\nEnvie o sender_chat_id do canal/chat.",
     "linkcreate": (
-        "Criar link completo\n\n"
+        "Criar link direto/completo\n\n"
         "Envie: nome | expiração | limite | solicitação\n"
-        "Exemplo: Entrada VIP | 7d | 100 | não\n"
-        "Para link com aprovação: Entrada | 2h | 0 | sim"
+        "Para link direto: Entrada VIP | 7d | 100 | não\n"
+        "Para link direto permanente: Entrada | permanente | 0 | direto\n"
+        "Para link com aprovação: Entrada | 2h | 0 | sim\n\n"
+        "O link adicional gerado será enviado em mensagem individual separada para não ser apagado pelo fluxo."
     ),
     "linkedit": (
         "Editar link\n\n"
@@ -1405,13 +1427,6 @@ _ADVANCED_PROMPTS = {
     ),
     "linkrevoke": "Revogar link\n\nEnvie o link de convite criado pelo bot.",
     "setphoto": "Alterar foto do grupo\n\nEnvie uma imagem/foto nesta DM. A foto ficará pendente e só será aplicada depois do botão Confirmar.",
-    "topiccreate": "Criar tópico\n\nEnvie: nome | cor opcional. Cores permitidas: 7322096, 16766590, 13338331, 9367192, 16749490, 16478047.",
-    "topicedit": "Editar tópico\n\nEnvie: thread_id | nome | cor opcional. Nome vazio mantém/limpa conforme Bot API.",
-    "topicclose": "Fechar tópico\n\nEnvie o message_thread_id do tópico.",
-    "topicreopen": "Reabrir tópico\n\nEnvie o message_thread_id do tópico.",
-    "topicdelete": "Apagar tópico\n\nEnvie o message_thread_id do tópico.",
-    "topicunpin": "Limpar fixados do tópico\n\nEnvie o message_thread_id do tópico.",
-    "topicgedit": "Renomear tópico geral\n\nEnvie o novo nome do tópico geral.",
     "settag": "Tag real de membro\n\nEnvie: user_id | tag. Máximo 16 caracteres, sem emoji. Use tag vazia para limpar.",
     "warnadd": "Advertir usuário\n\nEnvie: user_id | motivo.",
     "warnlist": "Listar advertências\n\nEnvie user_id específico ou a palavra todos.",
@@ -1454,7 +1469,7 @@ async def _prepare_advanced_confirmation(callback: CallbackQuery, bot: Any, sess
     if error:
         await _safe_edit(callback, error, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
-    if action not in {"lock", "unlock", "unpinall", "linkexport", "delphoto", "topicgclose", "topicgreopen", "topicghide", "topicgunhide", "topicgunpin"}:
+    if action not in {"lock", "unlock", "unpinall", "linkexport", "delphoto"}:
         await _safe_edit(callback, "Ação avançada sem texto desconhecida.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
     session.selected_action = action
@@ -1465,13 +1480,8 @@ async def _prepare_advanced_confirmation(callback: CallbackQuery, bot: Any, sess
         "lock": "O grupo será fechado para envio de membros comuns.",
         "unlock": "As permissões padrão de envio serão reabertas para membros comuns.",
         "unpinall": "Todos os fixados visíveis para a Bot API serão removidos.",
-        "linkexport": "O link primário gerado pelo bot será exportado/renovado. Links primários anteriores do bot podem ser substituídos.",
+        "linkexport": "Esta ação gera um novo link principal do bot. O link principal anterior gerado por este bot pode deixar de funcionar. Links criados por outros administradores não são reaproveitados pelo bot.",
         "delphoto": "A foto atual do grupo será removida.",
-        "topicgclose": "O tópico geral será fechado.",
-        "topicgreopen": "O tópico geral será reaberto.",
-        "topicghide": "O tópico geral será ocultado.",
-        "topicgunhide": "O tópico geral será reexibido.",
-        "topicgunpin": "Todos os fixados do tópico geral serão removidos.",
     }[action]
     await _safe_edit(callback, _advanced_confirmation_text(session, action, [risk]), to_inline_keyboard_markup(confirm_cancel_keyboard(session.session_id)))
 
@@ -1577,34 +1587,6 @@ async def _handle_advanced_text(message: Message, bot: Any, session: Any, text: 
         session.waiting_for = "setphoto_upload"
         await message.answer("Envie agora a imagem/foto que será usada como foto do grupo.")
         return
-    elif action == "topiccreate":
-        parsed_topic = parse_topic_create_action(text)
-        if parsed_topic.error or parsed_topic.name is None:
-            await message.answer(f"Entrada inválida: {parsed_topic.error or 'nome ausente'}")
-            return
-        pending = {"action": action, "name": parsed_topic.name, "icon_color": parsed_topic.icon_color}
-        details = [f"Nome: {parsed_topic.name}", f"Cor: {parsed_topic.icon_color or 'padrão'}"]
-    elif action == "topicedit":
-        parsed_topic = parse_topic_edit_action(text)
-        if parsed_topic.error or parsed_topic.message_thread_id is None:
-            await message.answer(f"Entrada inválida: {parsed_topic.error or 'thread_id ausente'}")
-            return
-        pending = {"action": action, "message_thread_id": parsed_topic.message_thread_id, "name": parsed_topic.name or "", "icon_color": parsed_topic.icon_color}
-        details = [f"Thread ID: {parsed_topic.message_thread_id}", f"Nome: {parsed_topic.name or '<vazio>'}", f"Cor: {parsed_topic.icon_color or 'sem alteração'}"]
-    elif action in {"topicclose", "topicreopen", "topicdelete", "topicunpin"}:
-        thread_id, err = parse_thread_id(text)
-        if err or thread_id is None:
-            await message.answer(f"Entrada inválida: {err or 'thread_id ausente'}")
-            return
-        pending = {"action": action, "message_thread_id": thread_id}
-        details = [f"Thread ID: {thread_id}"]
-    elif action == "topicgedit":
-        clean = text.strip()
-        if not 1 <= len(clean) <= 128:
-            await message.answer("Nome inválido: precisa ter 1 a 128 caracteres.")
-            return
-        pending = {"action": action, "name": clean}
-        details = [f"Novo nome: {clean}"]
     elif action == "settag":
         parsed_tag = parse_user_text_action(text, max_text_len=16, allow_empty_text=True, label="tag")
         if parsed_tag.error or parsed_tag.user_id is None:

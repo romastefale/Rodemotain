@@ -115,8 +115,8 @@ def test_join_request_keyboard_exposes_accept_and_decline_without_duplicate_usag
 
     join_rows = join_requests_keyboard("abc123")
     join_texts = [row[0].text for row in join_rows]
-    assert "✅ Aceitar ID pendente" in join_texts
-    assert "🚫 Recusar ID pendente" in join_texts
+    assert "📥 Aceitar ID pendente" in join_texts
+    assert "📤 Recusar ID pendente" in join_texts
 
     log_rows = logs_keyboard("abc123")
     log_texts = [row[0].text for row in log_rows]

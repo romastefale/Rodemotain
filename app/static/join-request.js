@@ -6,7 +6,11 @@
 
   const botIcon = document.getElementById("botIcon");
   const groupSelect = document.getElementById("groupSelect");
-  const groupList = document.getElementById("groupList");
+  const groupPicker = document.getElementById("groupPicker");
+  const groupPickerButton = document.getElementById("groupPickerButton");
+  const groupPickerText = document.getElementById("groupPickerText");
+  const groupPickerMeta = document.getElementById("groupPickerMeta");
+  const groupMenu = document.getElementById("groupMenu");
   const groupHint = document.getElementById("groupHint");
   const rulesCheck = document.getElementById("rulesCheck");
   const spamCheck = document.getElementById("spamCheck");
@@ -15,6 +19,15 @@
   const captchaAnswer = document.getElementById("captchaAnswer");
   const submitBtn = document.getElementById("submitBtn");
   const statusEl = document.getElementById("status");
+
+  function updateViewportHeight() {
+    const height = tg && tg.viewportHeight ? tg.viewportHeight : window.innerHeight;
+    document.documentElement.style.setProperty("--app-height", `${Math.max(320, Math.floor(height))}px`);
+  }
+
+  window.addEventListener("resize", updateViewportHeight, { passive: true });
+  window.addEventListener("orientationchange", updateViewportHeight, { passive: true });
+  document.addEventListener("gesturestart", (event) => event.preventDefault());
 
   if (botIcon) {
     botIcon.addEventListener("error", () => {
@@ -44,12 +57,45 @@
     submitBtn.disabled = !(groupOk && checksOk && captchaOk);
   }
 
+  function closeGroupMenu() {
+    groupMenu.hidden = true;
+    groupPicker.classList.remove("open");
+    groupPickerButton.setAttribute("aria-expanded", "false");
+  }
+
+  function openGroupMenu() {
+    if (groupPickerButton.disabled) return;
+    groupMenu.hidden = false;
+    groupPicker.classList.add("open");
+    groupPickerButton.setAttribute("aria-expanded", "true");
+    const active = groupMenu.querySelector(".group-option[aria-selected='true']") || groupMenu.querySelector(".group-option");
+    if (active) active.focus();
+  }
+
+  function toggleGroupMenu() {
+    if (groupMenu.hidden) openGroupMenu();
+    else closeGroupMenu();
+  }
+
+  function setPickerText(title, meta) {
+    groupPickerText.textContent = title || "Selecione um grupo";
+    groupPickerMeta.textContent = meta || "Toque para abrir a lista";
+  }
+
   function setSelectedGroup(chatId) {
     groupSelect.value = String(chatId || "");
-    for (const button of groupList.querySelectorAll(".group-option")) {
+    let selected = null;
+    for (const button of groupMenu.querySelectorAll(".group-option")) {
       const active = button.dataset.chatId === groupSelect.value;
-      button.setAttribute("aria-checked", active ? "true" : "false");
+      button.setAttribute("aria-selected", active ? "true" : "false");
       button.tabIndex = active ? 0 : -1;
+      if (active) selected = button;
+    }
+    if (selected) {
+      setPickerText(
+        selected.querySelector(".group-title")?.textContent || groupSelect.value,
+        selected.querySelector(".group-meta")?.textContent || "grupo selecionado"
+      );
     }
     canSubmit();
   }
@@ -58,9 +104,10 @@
     const button = document.createElement("button");
     button.type = "button";
     button.className = "group-option";
-    button.setAttribute("role", "radio");
-    button.setAttribute("aria-checked", "false");
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", "false");
     button.dataset.chatId = String(group.chat_id);
+    button.tabIndex = -1;
 
     const radio = document.createElement("span");
     radio.className = "group-radio";
@@ -82,17 +129,34 @@
     button.appendChild(radio);
     button.appendChild(text);
 
-    button.addEventListener("click", () => setSelectedGroup(group.chat_id));
+    button.addEventListener("click", () => {
+      setSelectedGroup(group.chat_id);
+      closeGroupMenu();
+      groupPickerButton.focus();
+    });
     button.addEventListener("keydown", (event) => {
-      if (!["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].includes(event.key)) return;
-      event.preventDefault();
-      const buttons = [...groupList.querySelectorAll(".group-option")];
+      const buttons = [...groupMenu.querySelectorAll(".group-option")];
       const current = buttons.indexOf(button);
-      const next = event.key === "ArrowDown" || event.key === "ArrowRight"
-        ? (current + 1) % buttons.length
-        : (current - 1 + buttons.length) % buttons.length;
-      buttons[next].focus();
-      setSelectedGroup(buttons[next].dataset.chatId);
+      if (["ArrowDown", "ArrowRight"].includes(event.key)) {
+        event.preventDefault();
+        const next = buttons[(current + 1) % buttons.length];
+        next.focus();
+        setSelectedGroup(next.dataset.chatId);
+      } else if (["ArrowUp", "ArrowLeft"].includes(event.key)) {
+        event.preventDefault();
+        const next = buttons[(current - 1 + buttons.length) % buttons.length];
+        next.focus();
+        setSelectedGroup(next.dataset.chatId);
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setSelectedGroup(button.dataset.chatId);
+        closeGroupMenu();
+        groupPickerButton.focus();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closeGroupMenu();
+        groupPickerButton.focus();
+      }
     });
 
     return button;
@@ -108,10 +172,12 @@
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || "falha ao carregar grupos");
       groupSelect.innerHTML = "";
-      groupList.innerHTML = "";
+      groupMenu.innerHTML = "";
       if (!data.groups.length) {
         groupSelect.innerHTML = "<option value=''>Nenhum grupo registrado ainda</option>";
-        groupList.innerHTML = "<div class='group-empty'>Nenhum grupo registrado ainda</div>";
+        groupMenu.innerHTML = "<div class='group-empty'>Nenhum grupo registrado ainda</div>";
+        setPickerText("Nenhum grupo registrado", "O bot precisa receber update do grupo");
+        groupPickerButton.disabled = true;
         groupHint.textContent = "O bot precisa receber pelo menos um update do grupo para registrá-lo.";
         return;
       }
@@ -124,13 +190,17 @@
         option.value = String(group.chat_id);
         option.textContent = group.title + (group.username ? ` (@${group.username})` : "");
         groupSelect.appendChild(option);
-        groupList.appendChild(createGroupButton(group));
+        groupMenu.appendChild(createGroupButton(group));
       }
       groupSelect.disabled = false;
+      groupPickerButton.disabled = false;
+      setPickerText("Selecione um grupo", `${data.groups.length} grupo${data.groups.length === 1 ? "" : "s"} disponível${data.groups.length === 1 ? "" : "is"}`);
       groupHint.textContent = "A seleção será validada com a solicitação real recebida pelo Telegram.";
     } catch (err) {
       groupSelect.innerHTML = "<option value=''>Abra esta tela pelo Telegram</option>";
-      groupList.innerHTML = "<div class='group-empty'>Abra esta tela pelo Telegram</div>";
+      groupMenu.innerHTML = "<div class='group-empty'>Abra esta tela pelo Telegram</div>";
+      setPickerText("Abra pelo Telegram", "Não foi possível carregar grupos");
+      groupPickerButton.disabled = true;
       setStatus(String(err.message || err), "error");
     }
   }
@@ -170,13 +240,30 @@
     }
   }
 
+  groupPickerButton.addEventListener("click", toggleGroupMenu);
+  groupPickerButton.addEventListener("keydown", (event) => {
+    if (["ArrowDown", "Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      openGroupMenu();
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (!groupPicker.contains(event.target)) closeGroupMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeGroupMenu();
+  });
+
   [rulesCheck, spamCheck, captchaCheck, captchaAnswer].forEach((el) => el.addEventListener("input", canSubmit));
   [rulesCheck, spamCheck, captchaCheck].forEach((el) => el.addEventListener("change", canSubmit));
   submitBtn.addEventListener("click", submit);
 
+  updateViewportHeight();
   if (tg) {
     tg.ready();
     tg.expand();
+    tg.onEvent("viewportChanged", updateViewportHeight);
+    if (typeof tg.disableVerticalSwipes === "function") tg.disableVerticalSwipes();
   }
   loadGroups().finally(canSubmit);
 })();

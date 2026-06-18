@@ -17,9 +17,9 @@ def test_phase10_keyboard_exposes_new_bot_api_power_actions() -> None:
     from app.plugins.tigrao_fsm.keyboards import action_category_keyboard, destructive_actions_keyboard
 
     category_labels = [button.text for row in destructive_actions_keyboard("abc123") for button in row]
-    assert "✅ 👤 Usuários" in category_labels
-    assert "🚫 💬 Mensagens" in category_labels
-    assert "🚨 🛡️ Proteções" in category_labels
+    assert "👤 Usuários" in category_labels
+    assert "💬 Mensagens" in category_labels
+    assert "🛡️ Proteções" in category_labels
 
     labels = [button.text for category in ("sub_user_restrict", "sub_msg_delete", "sub_group_danger", "cat_audit", "sub_react_delete") for row in action_category_keyboard("abc123", category) for button in row]
     assert "⏱️ Ban por tempo" in labels
