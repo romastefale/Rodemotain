@@ -1,0 +1,3 @@
+FASE 21 OK
+README.md reescrito em formato descritivo de uso.
+Sem alteração de código Python.

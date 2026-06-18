@@ -14,11 +14,17 @@ from aiogram.types import BotCommand, Update
 
 from app.bot.group_registry import list_groups, remember_chat_from_update
 from app.bot.api_compat import answer_chat_join_request_query_compat
+from app.bot.bot_profile_icon import (
+    fallback_bot_icon_svg,
+    get_or_refresh_bot_profile_icon,
+    media_type_for_icon,
+)
 from app.bot.telegram_webapp import TelegramWebAppAuthError, validate_init_data
 from app.config.settings import (
     ALLOWED_UPDATES,
     BASE_DIR,
     BASE_URL,
+    DATA_DIR,
     SET_WEBHOOK_ON_STARTUP,
     TELEGRAM_BOT_TOKEN,
     WEBHOOK_PATH,
@@ -72,7 +78,6 @@ async def _set_bot_commands_safe(bot_obj: Bot) -> None:
         BotCommand(command="start", description="tutorial rápido do moderador"),
         BotCommand(command="help", description="lista comandos e recursos"),
         BotCommand(command="tigrao", description="abrir painel de moderação"),
-        BotCommand(command="captcha", description="responder captcha de entrada"),
     ]
     try:
         await bot_obj.set_my_commands(commands)
@@ -96,6 +101,21 @@ def readyz() -> dict[str, Any]:
 
 
 
+
+
+@app.get("/telegram/bot-icon")
+async def telegram_bot_icon() -> Response:
+    """Serve a foto de perfil pública do bot para o Mini App.
+
+    A rota usa cache local para não consultar a Bot API a cada abertura. Se o
+    token estiver ausente, o bot ainda não estiver configurado ou o Telegram não
+    retornar foto de perfil, a interface recebe um SVG simples com a inicial R.
+    """
+    if TELEGRAM_BOT_TOKEN:
+        icon_path = await asyncio.to_thread(get_or_refresh_bot_profile_icon, TELEGRAM_BOT_TOKEN, DATA_DIR)
+        if icon_path is not None and icon_path.exists():
+            return FileResponse(icon_path, media_type=media_type_for_icon(icon_path))
+    return Response(content=fallback_bot_icon_svg(), media_type="image/svg+xml")
 
 
 @app.get("/join-request")

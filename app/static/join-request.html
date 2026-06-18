@@ -10,7 +10,10 @@
 <body>
   <main class="card">
     <header class="hero">
-      <div class="mark">🐯</div>
+      <div class="mark" aria-hidden="true">
+        <img id="botIcon" class="bot-icon" src="/telegram/bot-icon" alt="" loading="eager" />
+        <span class="mark-fallback">R</span>
+      </div>
       <div>
         <h1>Rodemotain</h1>
         <p>Solicitação de entrada</p>
@@ -18,17 +21,32 @@
     </header>
 
     <section class="field">
-      <label for="groupSelect">Grupo</label>
-      <select id="groupSelect" disabled>
+      <label id="groupLabel">Grupo</label>
+      <select id="groupSelect" class="sr-only" aria-hidden="true" tabindex="-1" disabled>
         <option>Carregando grupos...</option>
       </select>
+      <div id="groupList" class="group-list" role="radiogroup" aria-labelledby="groupLabel">
+        <div class="group-empty">Carregando grupos...</div>
+      </div>
       <small id="groupHint">Selecione o grupo em que você quer entrar.</small>
     </section>
 
     <section class="checks" aria-label="Confirmações obrigatórias">
-      <label><input id="rulesCheck" type="checkbox" /> Li as regras do grupo</label>
-      <label><input id="spamCheck" type="checkbox" /> Não vou enviar spam</label>
-      <label><input id="captchaCheck" type="checkbox" /> Aceito passar pelo captcha</label>
+      <label class="choice-row">
+        <input id="rulesCheck" type="checkbox" />
+        <span class="choice-dot" aria-hidden="true"></span>
+        <span>Li as regras do grupo</span>
+      </label>
+      <label class="choice-row">
+        <input id="spamCheck" type="checkbox" />
+        <span class="choice-dot" aria-hidden="true"></span>
+        <span>Não vou enviar spam</span>
+      </label>
+      <label class="choice-row">
+        <input id="captchaCheck" type="checkbox" />
+        <span class="choice-dot" aria-hidden="true"></span>
+        <span>Aceito passar pelo captcha</span>
+      </label>
     </section>
 
     <section class="field">
@@ -36,7 +54,7 @@
       <input id="captchaAnswer" type="number" inputmode="numeric" autocomplete="off" placeholder="Resposta" />
     </section>
 
-    <button id="submitBtn" type="button" disabled>Enviar solicitação</button>
+    <button id="submitBtn" class="submit-btn" type="button" disabled>Enviar solicitação</button>
     <p id="status" role="status"></p>
   </main>
   <script src="/static/join-request.js"></script>

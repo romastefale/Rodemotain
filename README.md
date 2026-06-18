@@ -377,3 +377,8 @@ TIGRAO_JOIN_REQUEST_WEBAPP_URL
 ```
 
 Esses nomes foram mantidos para não quebrar compatibilidade com o deploy, variáveis e callbacks internos.
+
+
+## Mini App de entrada
+
+A tela `/join-request` usa automaticamente a foto de perfil pública do bot no Telegram como ícone. A seleção de grupo aparece em botões próprios do Rodemotain, sem depender dos círculos nativos de seleção do navegador.

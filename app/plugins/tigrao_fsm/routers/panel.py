@@ -1,6 +1,7 @@
 """Router real mínimo do painel Tigrão FSM."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from io import BytesIO
 from datetime import timedelta
@@ -105,6 +106,8 @@ router = Router(name="tigrao_fsm_panel")
 
 HOME_TEXT = "Rodemotain"
 SESSION_EXPIRED_TEXT = "Sessão expirada. Use /tigrao novamente."
+ENTRY_ACCESS_DENIED_TEXT = "Acesso negado.\nUse o botão para solucionar a entrada no grupo ou comando /captcha"
+GROUP_COMMAND_TTL_SECONDS = 300
 
 START_TEXT_AUTHORIZED = """🐯 Rodemotain
 
@@ -114,7 +117,6 @@ Comandos principais:
 /start - abre este tutorial rápido
 /help - lista comandos e recursos
 /tigrao - abre o painel de moderação
-/captcha código - responde captcha de entrada
 
 Uso básico:
 1. Adicione o bot como administrador no grupo.
@@ -123,13 +125,7 @@ Uso básico:
 4. Selecione o grupo e execute as ações por botões. Ações sensíveis exigem Confirmar.
 """
 
-START_TEXT_UNAUTHORIZED = """🐯 Rodemotain
-
-Bot online, mas este bot é privado.
-
-Seu Telegram ID não está autorizado em TIGRAO_BOT_ACCESS_USER_IDS.
-Peça ao dono do bot para incluir seu ID na variável do Railway.
-"""
+START_TEXT_UNAUTHORIZED = ENTRY_ACCESS_DENIED_TEXT
 
 HELP_TEXT_AUTHORIZED = """🐯 Rodemotain — comandos
 
@@ -165,16 +161,7 @@ Recursos pelo painel:
 Observação: as funções dependem das permissões de administrador concedidas ao bot no Telegram.
 """
 
-HELP_TEXT_UNAUTHORIZED = """🐯 Rodemotain — comandos
-
-/start
-Mostra estado básico do bot.
-
-/help
-Mostra esta ajuda.
-
-Este bot é privado. Para abrir o painel, seu ID precisa estar em TIGRAO_BOT_ACCESS_USER_IDS.
-"""
+HELP_TEXT_UNAUTHORIZED = ENTRY_ACCESS_DENIED_TEXT
 
 
 def _uid(obj: Any) -> int | None:
@@ -254,29 +241,63 @@ async def _safe_edit(callback: CallbackQuery, text: str, markup: Any) -> None:
 
 
 
+async def _delete_message_later(bot: Any, *, chat_id: int, message_id: int, delay_seconds: int = GROUP_COMMAND_TTL_SECONDS) -> None:
+    """Apaga uma mensagem depois de um intervalo sem bloquear o handler."""
+    try:
+        await asyncio.sleep(delay_seconds)
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception:
+        logger.debug("RODEMOTAIN_TEMP_MESSAGE_DELETE_FAILED", exc_info=True)
+
+
+def _schedule_delete_message(bot: Any, *, chat_id: int | None, message_id: int | None, delay_seconds: int = GROUP_COMMAND_TTL_SECONDS) -> None:
+    if bot is None or chat_id is None or message_id is None:
+        return
+    try:
+        asyncio.create_task(_delete_message_later(bot, chat_id=int(chat_id), message_id=int(message_id), delay_seconds=delay_seconds))
+    except RuntimeError:
+        logger.debug("RODEMOTAIN_TEMP_MESSAGE_SCHEDULE_FAILED", exc_info=True)
+
+
+async def _answer_group_temporarily(message: Message, bot: Any, text: str) -> None:
+    """Responde em grupo e programa remoção automática da resposta em 5 minutos."""
+    try:
+        sent = await message.answer(text)
+    except Exception:
+        logger.debug("RODEMOTAIN_GROUP_TEMP_ANSWER_FAILED", exc_info=True)
+        return
+    chat = getattr(sent, "chat", None) or getattr(message, "chat", None)
+    chat_id = getattr(chat, "id", None)
+    message_id = getattr(sent, "message_id", None)
+    _schedule_delete_message(bot, chat_id=chat_id, message_id=message_id)
+
+
 
 @router.message(Command("start"))
-async def tigrao_start(message: Message) -> None:
+async def tigrao_start(message: Message, bot: Any | None = None) -> None:
     """Tutorial rápido e resposta de vida do bot.
 
-Responde também usuários não autorizados para deixar claro que o webhook e o
-roteamento estão funcionando, sem abrir acesso ao painel.
+Em grupos, a resposta é temporária e é apagada automaticamente em 5 minutos
+para não poluir a conversa. Usuários não autorizados recebem somente a
+orientação curta de entrada/captcha.
     """
     user_id = _uid(message)
-    if _authorized(user_id):
-        await message.answer(START_TEXT_AUTHORIZED)
-    else:
-        await message.answer(START_TEXT_UNAUTHORIZED)
+    text = START_TEXT_AUTHORIZED if _authorized(user_id) else START_TEXT_UNAUTHORIZED
+    if _chat_type(getattr(message, "chat", None)) in {"group", "supergroup"}:
+        await _answer_group_temporarily(message, bot, text)
+        return
+    await message.answer(text)
 
 
 @router.message(Command("help"))
-async def tigrao_help(message: Message) -> None:
+async def tigrao_help(message: Message, bot: Any | None = None) -> None:
     """Lista comandos públicos e recursos do painel."""
     user_id = _uid(message)
-    if _authorized(user_id):
-        await message.answer(HELP_TEXT_AUTHORIZED)
-    else:
-        await message.answer(HELP_TEXT_UNAUTHORIZED)
+    text = HELP_TEXT_AUTHORIZED if _authorized(user_id) else HELP_TEXT_UNAUTHORIZED
+    if _chat_type(getattr(message, "chat", None)) in {"group", "supergroup"}:
+        await _answer_group_temporarily(message, bot, text)
+        return
+    await message.answer(text)
 
 @router.message(Command("tigrao"))
 async def tigrao_panel(message: Message, bot: Any) -> None:

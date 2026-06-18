@@ -1,0 +1,6 @@
+FASE 22 OK
+- Web App /join-request com ícone pela foto de perfil do bot
+- Endpoint /telegram/bot-icon criado com cache e fallback SVG
+- Seleção de grupo por botões customizados sem artefato de círculo nativo
+- Checkboxes customizados para remover bug visual do círculo
+- Validação: compileall OK; pytest OK

@@ -14,20 +14,47 @@ body {
   background: radial-gradient(circle at top, #1d2634 0, #0d0f14 48%, #080a0e 100%);
 }
 .card {
-  width: min(440px, 100%);
+  width: min(460px, 100%);
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 24px;
   padding: 22px;
-  background: rgba(17, 22, 31, .92);
+  background: rgba(17, 22, 31, .94);
   box-shadow: 0 18px 70px rgba(0,0,0,.32);
 }
 .hero { display: flex; gap: 14px; align-items: center; margin-bottom: 20px; }
-.mark { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; background: rgba(255,255,255,.08); font-size: 30px; }
+.mark {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  overflow: hidden;
+  background: radial-gradient(circle at 30% 20%, rgba(251,146,60,.55), rgba(6,182,212,.18) 54%, rgba(15,23,42,.9));
+  box-shadow: 0 0 0 1px rgba(255,255,255,.10), 0 0 32px rgba(14,165,233,.22);
+}
+.bot-icon {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.mark-fallback {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  font-size: 30px;
+  font-weight: 900;
+}
+.mark.icon-failed .bot-icon { display: none; }
+.mark.icon-failed .mark-fallback { display: grid; }
 h1 { margin: 0; font-size: 22px; }
 p { margin: 4px 0 0; color: #aeb8c7; }
 .field { margin: 16px 0; }
 label { display: block; font-weight: 650; margin-bottom: 8px; }
-select, input {
+input[type="number"] {
   width: 100%;
   min-height: 46px;
   border-radius: 14px;
@@ -37,12 +64,104 @@ select, input {
   color: #f5f7fb;
   outline: none;
 }
-select:disabled, input:disabled { opacity: .65; }
+input[type="number"]:focus {
+  border-color: rgba(56,189,248,.75);
+  box-shadow: 0 0 0 3px rgba(56,189,248,.16);
+}
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
 small { display: block; margin-top: 8px; color: #8b96a8; }
+.group-list { display: grid; gap: 10px; }
+.group-option {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.035));
+  color: #f5f7fb;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.group-option:focus-visible,
+.choice-row:focus-within {
+  outline: 2px solid rgba(56,189,248,.85);
+  outline-offset: 2px;
+}
+.group-option[aria-checked="true"] {
+  border-color: rgba(251,146,60,.85);
+  background: linear-gradient(135deg, rgba(251,146,60,.18), rgba(6,182,212,.10));
+}
+.group-radio,
+.choice-dot {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 999px;
+  border: 2px solid rgba(174,184,199,.65);
+  background: rgba(15,23,42,.72);
+  box-shadow: inset 0 0 0 4px rgba(15,23,42,.85);
+}
+.group-option[aria-checked="true"] .group-radio,
+.choice-row input:checked + .choice-dot {
+  border-color: #fbbf24;
+  background: #fbbf24;
+  box-shadow: inset 0 0 0 5px #111827, 0 0 0 3px rgba(251,191,36,.16);
+}
+.group-text { display: grid; gap: 2px; min-width: 0; }
+.group-title { font-weight: 740; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-meta { font-size: 12px; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-empty {
+  min-height: 52px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(255,255,255,.14);
+  border-radius: 16px;
+  color: #9ca3af;
+  padding: 12px;
+  text-align: center;
+}
 .checks { display: grid; gap: 10px; margin: 18px 0; }
-.checks label { display: flex; gap: 10px; align-items: center; margin: 0; font-weight: 520; color: #d8dee9; }
-.checks input { width: 20px; min-height: 20px; accent-color: #f59e0b; }
-button {
+.choice-row {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.11);
+  border-radius: 16px;
+  background: rgba(255,255,255,.045);
+  font-weight: 520;
+  color: #d8dee9;
+  cursor: pointer;
+  user-select: none;
+}
+.choice-row input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+  min-height: 1px;
+  margin: 0;
+  padding: 0;
+}
+.submit-btn {
   width: 100%;
   min-height: 48px;
   border: 0;
@@ -52,7 +171,7 @@ button {
   background: linear-gradient(135deg, #fbbf24, #fb923c);
   cursor: pointer;
 }
-button:disabled { opacity: .5; cursor: not-allowed; }
+.submit-btn:disabled { opacity: .5; cursor: not-allowed; }
 #status { min-height: 22px; margin-top: 14px; font-size: 14px; }
 .error { color: #fecaca; }
 .ok { color: #bbf7d0; }
