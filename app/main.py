@@ -29,7 +29,7 @@ from app.plugins.tigrao_fsm import storage as tigrao_storage
 from app.plugins.tigrao_fsm.storage import ensure_tables as ensure_tigrao_tables
 
 logger = logging.getLogger(__name__)
-app = FastAPI(title="Tigrão Moderador", version="1.0.0")
+app = FastAPI(title="Rodemotain", version="1.0.0")
 STATIC_DIR = BASE_DIR / "app" / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

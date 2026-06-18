@@ -1,0 +1,7 @@
+FASE20_OK=1
+BASE=tigrao-moderador-bot-fase19.zip
+ALTERACAO=interface_branding_rodemotain
+COMPILE_OK=1
+PYTEST=74 passed
+COMANDO_TIGRAO_PRESERVADO=1
+TIGRAO_ENV_NAMES_PRESERVADOS=1

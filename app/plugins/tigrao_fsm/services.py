@@ -13,7 +13,7 @@ def build_group_unavailable_text(name: str, chat_id: int) -> str:
         f"ID do grupo: {chat_id}\n"
         "Status do bot: não administrador\n"
         "Painel indisponível para este grupo.\n"
-        "Promova o bot a administrador para usar o Tigrão aqui."
+        "Promova o bot a administrador para usar o Rodemotain aqui."
     )
 
 

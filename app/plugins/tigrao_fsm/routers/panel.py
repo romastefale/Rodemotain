@@ -103,10 +103,10 @@ from ..runtime.anti_flood_runtime import handle as anti_flood_handle
 logger = logging.getLogger(__name__)
 router = Router(name="tigrao_fsm_panel")
 
-HOME_TEXT = "Tigrão"
+HOME_TEXT = "Rodemotain"
 SESSION_EXPIRED_TEXT = "Sessão expirada. Use /tigrao novamente."
 
-START_TEXT_AUTHORIZED = """🐯 Tigrão Moderador
+START_TEXT_AUTHORIZED = """🐯 Rodemotain
 
 Bot online.
 
@@ -123,7 +123,7 @@ Uso básico:
 4. Selecione o grupo e execute as ações por botões. Ações sensíveis exigem Confirmar.
 """
 
-START_TEXT_UNAUTHORIZED = """🐯 Tigrão Moderador
+START_TEXT_UNAUTHORIZED = """🐯 Rodemotain
 
 Bot online, mas este bot é privado.
 
@@ -131,7 +131,7 @@ Seu Telegram ID não está autorizado em TIGRAO_BOT_ACCESS_USER_IDS.
 Peça ao dono do bot para incluir seu ID na variável do Railway.
 """
 
-HELP_TEXT_AUTHORIZED = """🐯 Tigrão Moderador — comandos
+HELP_TEXT_AUTHORIZED = """🐯 Rodemotain — comandos
 
 /start
 Mostra tutorial rápido e estado básico do bot.
@@ -165,7 +165,7 @@ Recursos pelo painel:
 Observação: as funções dependem das permissões de administrador concedidas ao bot no Telegram.
 """
 
-HELP_TEXT_UNAUTHORIZED = """🐯 Tigrão Moderador — comandos
+HELP_TEXT_UNAUTHORIZED = """🐯 Rodemotain — comandos
 
 /start
 Mostra estado básico do bot.
@@ -479,7 +479,7 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
         session.waiting_for = None
         await _show_group_detail(callback, bot, session_id, int(action[1:]))
     elif action == "logs":
-        await _safe_edit(callback, "Logs do Tigrão", to_inline_keyboard_markup(logs_keyboard(session_id)))
+        await _safe_edit(callback, "Logs do Rodemotain", to_inline_keyboard_markup(logs_keyboard(session_id)))
     elif action in {"log_mod", "log_use", "log_join", "log_err"}:
         await _show_logs(callback, session, action)
     elif action == "join":
@@ -566,7 +566,7 @@ async def _go_back(callback: CallbackQuery, bot: Any, session: Any) -> None:
         await _show_ddx(callback, session)
         return
     if nav == "logs":
-        await _safe_edit(callback, "Logs do Tigrão", to_inline_keyboard_markup(logs_keyboard(session.session_id)))
+        await _safe_edit(callback, "Logs do Rodemotain", to_inline_keyboard_markup(logs_keyboard(session.session_id)))
         return
     if nav == "groups":
         await _show_groups(callback, session.session_id)
@@ -628,7 +628,7 @@ async def _show_selected_group_panel(callback: CallbackQuery, bot: Any, session:
         perms = None
     if perms is None or not perms.is_admin:
         text = (f"Grupo selecionado: {title}\nID do grupo: {chat_id}\nStatus do bot: não administrador\n"
-                "Painel indisponível para este grupo.\nPromova o bot a administrador para usar o Tigrão aqui.")
+                "Painel indisponível para este grupo.\nPromova o bot a administrador para usar o Rodemotain aqui.")
         await _safe_edit(callback, text, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
     yesno = lambda v: "sim" if v else "não"
@@ -680,7 +680,7 @@ async def _create_join_link(callback: CallbackQuery, bot: Any, session: Any) -> 
         perms = await get_bot_permissions(bot, chat_id)
         if not perms.is_admin or not perms.can_invite_users:
             raise PermissionError("bot sem can_invite_users")
-        invite = await create_join_request_link(bot, chat_id, name="Tigrão FSM")
+        invite = await create_join_request_link(bot, chat_id, name="Rodemotain")
     except Exception as exc:
         storage.log_event(
             action="join_link_create",
