@@ -1,0 +1,1 @@
+FASE 11 concluída: auditoria e revisão de erros aplicadas sobre fase10. Novas ações avançadas agora exigem confirmação por botão; navegação e consulta de pendentes corrigidas; testes locais: 34 passed.

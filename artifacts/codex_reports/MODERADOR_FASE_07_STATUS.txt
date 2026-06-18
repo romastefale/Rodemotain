@@ -1,0 +1,7 @@
+STATUS: Fase 07 aplicada sobre tigrao-moderador-bot-fase06.zip.
+ESCOPO: funções reais do bot moderador ativas por padrão; variável funcional única de autorização do painel: TIGRAO_BOT_ACCESS_USER_IDS.
+COMPATIBILIDADE: CODE_OWNER_IDS, OWNER_IDS, TR3_CODE_OWNER_IDS, TIGRAO_FSM_MODERATOR_IDS, MODERATOR_IDS e TR3_TIGRAO_FSM_MODERATOR_IDS aceitos apenas como aliases antigos.
+VALIDAÇÕES:
+python -m compileall -q app tests => passou
+pytest -q => 11 passed
+OBSERVAÇÃO: reações continuam stub e não foram expostas como função real.

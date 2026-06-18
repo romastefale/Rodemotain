@@ -1,0 +1,8 @@
+STATUS: Fase 06 aplicada sobre ZIP local isolado.
+VALIDAÇÕES:
+python -m compileall -q app tests => passou
+pytest -q => 8 passed
+ESCOPO: sem módulos musicais; foco em polling, registro de grupos, chat_join_request, DDX hard e parser de link para apagar mensagem.
+SEGURANÇA: destructive actions e DDX hard têm default seguro false no código; o .env.example pode ativar explicitamente para uso do bot moderador.
+
+OBSERVAÇÃO HISTÓRICA: Fase 07 substitui a política de flags da Fase 06.

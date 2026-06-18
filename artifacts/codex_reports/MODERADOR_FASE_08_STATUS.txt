@@ -1,0 +1,5 @@
+FASE 08 OK
+- aiogram pinado para 3.28.x
+- DDX hard com duração customizada por filtro
+- filtros expirados ignorados automaticamente
+- 15 testes passaram localmente

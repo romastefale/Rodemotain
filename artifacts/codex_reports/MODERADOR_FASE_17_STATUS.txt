@@ -1,0 +1,5 @@
+FASE17 OK
+Base: tigrao-moderador-bot-fase16.zip
+Railway fallback aplicado: BASE_URL via RAILWAY_PUBLIC_DOMAIN/RAILWAY_STATIC_URL; DATA_DIR via RAILWAY_VOLUME_MOUNT_PATH.
+/healthz confirmado: rota existe e railway.toml usa healthcheckPath = "/healthz".
+Validação: python -m compileall -q app tests; pytest -q => 63 passed.

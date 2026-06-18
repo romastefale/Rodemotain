@@ -1,0 +1,5 @@
+FASE 09: concluída
+Base: tigrao-moderador-bot-fase08.zip
+Escopo: Fase 1 — correção dos erros e melhoria de usabilidade
+Validação: python -m compileall -q app tests && pytest -q
+Resultado: 21 passed

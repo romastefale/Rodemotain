@@ -1,0 +1,5 @@
+FASE 10 CONCLUIDA
+BASE: tigrao-moderador-bot-fase09.zip
+ESCOPO: funcoes novas de moderacao/admin Bot API
+VALIDACAO: python -m compileall -q app tests && pytest -q
+RESULTADO: 27 passed

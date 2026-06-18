@@ -1,0 +1,6 @@
+FASE 16: OK LOCAL
+Base: tigrao-moderador-bot-fase15.zip
+Correção principal: Join Request Query/Mini App via compat HTTP direto à Telegram Bot API quando aiogram 3.28 não expõe wrappers.
+Validação: python -m compileall -q app tests && pytest -q
+Resultado: 60 passed
+Limite: sem teste real com token Telegram/Railway; front-end do Mini App externo ainda não criado.

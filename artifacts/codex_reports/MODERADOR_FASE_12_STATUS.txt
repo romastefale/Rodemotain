@@ -1,0 +1,18 @@
+MODERADOR FASE 12
+Base: tigrao-moderador-bot-fase11.zip
+Etapa: Confirmação empírica dos passos anteriores
+
+Validação:
+- python -m compileall -q app tests: OK
+- pytest -q: 40 passed
+
+Alterações:
+- Adicionado teste empírico de navegação, botões, confirmação e execução por fake bot.
+- Confirmado que ações avançadas não executam antes de Confirmar.
+- Confirmado que lockdown/unpinall seguem confirmação.
+- Confirmado que Voltar limpa pendências.
+- Confirmado fallback de safe_edit.
+- Confirmado get_chat_administrators(return_bots=True).
+- Ajustado texto de auditoria para "Auditoria de administradores/bots".
+
+Status: pronto para teste real com token Telegram e permissões administrativas completas.

@@ -1,0 +1,5 @@
+STATUS: Fase 14 aplicada sobre tigrao-moderador-bot-fase12.zip.
+ESCOPO: ETAPA01 + ETAPA02 conforme pedido do usuário.
+VALIDAÇÃO: python -m compileall -q app tests && pytest -q
+RESULTADO: 49 passed
+OBS: Sem teste com token real Telegram/Railway.

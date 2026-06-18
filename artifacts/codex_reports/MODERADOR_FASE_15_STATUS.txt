@@ -1,0 +1,5 @@
+FASE 15 CONCLUIDA
+BASE: tigrao-moderador-bot-fase14.zip
+VALIDACAO: python -m compileall -q app tests && pytest -q
+RESULTADO: 54 passed
+CORRECOES: setphoto com confirmar, anti-raid consumindo fluxo, captcha com max_attempts persistido e recusa por excesso.
