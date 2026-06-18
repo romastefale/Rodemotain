@@ -1,0 +1,5 @@
+FASE 25 OK
+Base: tigrao-moderador-bot-fase24.zip
+Alteração: painel categorizado com emojis e navegação intuitiva.
+Validação: python -m compileall -q app tests && pytest -q
+Resultado: 87 passed

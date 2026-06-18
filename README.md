@@ -382,3 +382,20 @@ Esses nomes foram mantidos para não quebrar compatibilidade com o deploy, vari�
 ## Mini App de entrada
 
 A tela `/join-request` usa automaticamente a foto de perfil pública do bot no Telegram como ícone. A seleção de grupo aparece em botões próprios do Rodemotain, sem depender dos círculos nativos de seleção do navegador.
+
+## Navegação do painel
+
+O painel do Rodemotain é organizado por categorias para evitar listas longas de botões. Depois de selecionar um grupo no `/tigrao`, use as categorias principais:
+
+- 📥 Entrada: solicitações de entrada, fila, links com solicitação e autorizações.
+- 👤 Usuários: ban, mute, desmute, advertências e tag de membro.
+- 💬 Mensagens: apagar mensagem, purge, fixar e desfixar.
+- 👑 Admins: auditoria, promover/rebaixar e título customizado.
+- 🔗 Links: criar, editar, exportar e revogar links de convite.
+- 🧩 Tópicos: funções de fórum e tópico geral.
+- 🎛️ Grupo: título, descrição, foto e fechamento/reabertura do grupo.
+- 🛡️ Proteções: anti-flood, anti-raid, captcha, DDX e status.
+- ⚛️ Reações: remoção de reações.
+- 📊 Logs / 🧾 Auditoria: consulta de registros, permissões e estado do grupo.
+
+Use `⬅️ Categorias` para voltar ao menu de categorias e `⬅️ Grupo` para voltar ao painel do grupo selecionado. Ações sensíveis continuam pedindo confirmação antes da execução.

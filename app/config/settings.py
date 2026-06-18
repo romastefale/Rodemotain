@@ -142,8 +142,10 @@ ALLOWED_UPDATES = [
     # Canais ficam inscritos para futura expansão sem alterar deploy.
     "channel_post",
     "edited_channel_post",
-    # Painel e fluxos de aprovação.
+    # Painel, inline X9 e fluxos de aprovação.
     "callback_query",
+    "inline_query",
+    "chosen_inline_result",
     "chat_join_request",
     "my_chat_member",
     "chat_member",

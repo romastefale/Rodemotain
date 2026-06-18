@@ -14,16 +14,21 @@ def read(path: str) -> str:
 
 
 def test_phase10_keyboard_exposes_new_bot_api_power_actions() -> None:
-    from app.plugins.tigrao_fsm.keyboards import destructive_actions_keyboard
+    from app.plugins.tigrao_fsm.keyboards import action_category_keyboard, destructive_actions_keyboard
 
-    labels = [row[0].text for row in destructive_actions_keyboard("abc123")]
-    assert "Banir com tempo livre" in labels
-    assert "Mutar com tempo livre" in labels
-    assert "Purge 1–100 mensagens" in labels
-    assert "Fechar grupo / lockdown" in labels
-    assert "Limpar todos os fixados" in labels
-    assert "Auditar admins/bots" in labels
-    assert "Remover reação de mensagem" in labels
+    category_labels = [button.text for row in destructive_actions_keyboard("abc123") for button in row]
+    assert "👤 Usuários" in category_labels
+    assert "💬 Mensagens" in category_labels
+    assert "🛡️ Proteções" in category_labels
+
+    labels = [button.text for category in ("cat_user", "cat_msg", "cat_group", "cat_audit", "cat_react") for row in action_category_keyboard("abc123", category) for button in row]
+    assert "⏱️ Ban por tempo" in labels
+    assert "⏱️ Mute livre" in labels
+    assert "🧹 Purge 1–100" in labels
+    assert "🔒 Fechar grupo" in labels
+    assert "🧯 Limpar fixados" in labels
+    assert "🧾 Auditar admins/bots" in labels
+    assert "⚛️ Remover reação" in labels
 
 
 def test_phase10_parsers_accept_custom_moderation_inputs() -> None:

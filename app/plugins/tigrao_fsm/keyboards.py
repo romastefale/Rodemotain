@@ -38,6 +38,15 @@ CALLBACK_ACTIONS = frozenset({
     "join_noauto",
     "ddx",
     "act",
+    "cat_user",
+    "cat_msg",
+    "cat_admin",
+    "cat_links",
+    "cat_topics",
+    "cat_group",
+    "cat_prot",
+    "cat_react",
+    "cat_audit",
     "ban",
     "unban",
     "mute1h",
@@ -234,8 +243,8 @@ def to_inline_keyboard_markup(rows: list[list[TigraoButtonSpec]]) -> Any:
 
 def home_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("Selecionar grupo", make_callback(session_id, "grp"), style="primary")],
-        [button("Fechar", make_callback(session_id, "close"), style="danger")],
+        [button("📂 Selecionar grupo", make_callback(session_id, "grp"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
 
 
@@ -244,15 +253,15 @@ def group_selection_keyboard(session_id: str, groups: list[dict]) -> list[list[T
     for idx, group in enumerate(groups[:50]):
         title = str(group.get("title") or group.get("username") or group.get("chat_id") or "Grupo")[:40]
         rows.append([button(title, make_callback(session_id, f"g{idx}"), style="primary")])
-    rows.append([button("Voltar", make_callback(session_id, "back"), style="primary")])
-    rows.append([button("Fechar", make_callback(session_id, "close"), style="danger")])
+    rows.append([button("⬅️ Voltar", make_callback(session_id, "back"), style="primary")])
+    rows.append([button("✖️ Fechar", make_callback(session_id, "close"), style="danger")])
     return rows
 
 
 def back_close_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("Voltar", make_callback(session_id, "back"), style="primary")],
-        [button("Fechar", make_callback(session_id, "close"), style="danger")],
+        [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
 
 
@@ -264,133 +273,175 @@ def group_admin_keyboard(
     reactions_enabled: bool = False,
 ) -> list[list[TigraoButtonSpec]]:
     rows: list[list[TigraoButtonSpec]] = [
-        [button("Logs", make_callback(session_id, "logs"), style="primary")],
-        [button("Solicitações de entrada", make_callback(session_id, "join"), style="primary")],
+        [button("📥 Entrada", make_callback(session_id, "join"), style="primary"), button("📊 Logs", make_callback(session_id, "logs"), style="primary")],
     ]
     if destructive_actions_enabled:
-        rows.append([button("Ações do grupo", make_callback(session_id, "act"), style="danger")])
+        rows.extend([
+            [button("👤 Usuários", make_callback(session_id, "cat_user"), style="danger"), button("💬 Mensagens", make_callback(session_id, "cat_msg"), style="danger")],
+            [button("👑 Admins", make_callback(session_id, "cat_admin"), style="danger"), button("🔗 Links", make_callback(session_id, "cat_links"), style="primary")],
+            [button("🧩 Tópicos", make_callback(session_id, "cat_topics"), style="primary"), button("🎛️ Grupo", make_callback(session_id, "cat_group"), style="danger")],
+            [button("🛡️ Proteções", make_callback(session_id, "cat_prot"), style="danger"), button("🧾 Auditoria", make_callback(session_id, "cat_audit"), style="primary")],
+        ])
     if ddx_enabled:
-        rows.append([button("DDX hard", make_callback(session_id, "ddx"), style="danger")])
+        rows.append([button("🧨 DDX hard", make_callback(session_id, "ddx"), style="danger")])
     if reactions_enabled:
-        rows.append([button("Reações", make_callback(session_id, "react"), style="danger")])
+        rows.append([button("⚛️ Reações", make_callback(session_id, "cat_react"), style="danger")])
     rows.extend([
-        [button("Voltar", make_callback(session_id, "back"), style="primary")],
-        [button("Fechar", make_callback(session_id, "close"), style="danger")],
+        [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary"), button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ])
     return rows
 
 
+_ACTION_CATEGORY_ROWS: dict[str, list[list[tuple[str, str, ButtonStyle]]]] = {
+    "cat_user": [
+        [("🚫 Banir", "ban", "danger"), ("⏱️ Ban por tempo", "bantime", "danger")],
+        [("✅ Desbanir", "unban", "success")],
+        [("🔇 Mutar 1h", "mute1h", "danger"), ("🔇 Mutar 24h", "mute24h", "danger")],
+        [("🔇 Mutar indef.", "muteforever", "danger"), ("⏱️ Mute livre", "mutetime", "danger")],
+        [("🔊 Desmutar", "unmute", "success")],
+        [("⚠️ Advertir", "warnadd", "danger"), ("📋 Ver warns", "warnlist", "primary")],
+        [("🧹 Limpar warns", "warnclear", "danger"), ("🏷️ Tag de membro", "settag", "danger")],
+    ],
+    "cat_msg": [
+        [("🗑️ Apagar mensagem", "delmsg", "danger")],
+        [("🧹 Purge 1–100", "purge", "danger")],
+        [("📌 Fixar", "pin", "primary"), ("📍 Desfixar", "unpin", "primary")],
+        [("🧯 Limpar fixados", "unpinall", "danger")],
+    ],
+    "cat_admin": [
+        [("🧾 Auditar admins/bots", "admins", "primary")],
+        [("⬆️ Promover admin", "promote", "danger"), ("⬇️ Rebaixar admin", "demote", "danger")],
+        [("🎖️ Título custom", "admintitle", "danger")],
+        [("📡 Banir sender", "bansender", "danger"), ("📡 Desbanir sender", "unbansender", "success")],
+    ],
+    "cat_links": [
+        [("🔑 Exportar primário", "linkexport", "danger")],
+        [("➕ Criar link", "linkcreate", "primary"), ("✏️ Editar link", "linkedit", "primary")],
+        [("🧨 Revogar link", "linkrevoke", "danger")],
+    ],
+    "cat_topics": [
+        [("➕ Criar tópico", "topiccreate", "primary"), ("✏️ Editar tópico", "topicedit", "primary")],
+        [("🔒 Fechar tópico", "topicclose", "danger"), ("🔓 Reabrir tópico", "topicreopen", "success")],
+        [("🗑️ Apagar tópico", "topicdelete", "danger"), ("📌 Limpar fixados", "topicunpin", "danger")],
+        [("🔒 Fechar geral", "topicgclose", "danger"), ("🔓 Reabrir geral", "topicgreopen", "success")],
+        [("✏️ Renomear geral", "topicgedit", "primary")],
+        [("🙈 Ocultar geral", "topicghide", "danger"), ("👁️ Reexibir geral", "topicgunhide", "success")],
+        [("📌 Limpar fixados geral", "topicgunpin", "danger")],
+    ],
+    "cat_group": [
+        [("🔒 Fechar grupo", "lock", "danger"), ("🔓 Reabrir grupo", "unlock", "success")],
+        [("✏️ Alterar título", "settitle", "danger"), ("📝 Alterar descrição", "setdesc", "danger")],
+        [("🖼️ Alterar foto", "setphoto", "danger"), ("🧽 Remover foto", "delphoto", "danger")],
+    ],
+    "cat_prot": [
+        [("🛡️ Status proteções", "protstatus", "primary")],
+        [("🌊 Anti-flood", "antiflood", "danger"), ("🚨 Anti-raid", "antiraid", "danger")],
+        [("🧩 Captcha", "captcha", "danger"), ("🧨 DDX hard", "ddx", "danger")],
+    ],
+    "cat_react": [
+        [("⚛️ Remover reação", "react1", "danger")],
+        [("🧹 Remover reações recentes", "reactall", "danger")],
+    ],
+    "cat_audit": [
+        [("🧾 Auditar admins/bots", "admins", "primary")],
+        [("🛡️ Status proteções", "protstatus", "primary")],
+        [("📊 Logs", "logs", "primary")],
+    ],
+}
+
+
+_ACTION_CATEGORY_TITLES: dict[str, str] = {
+    "cat_user": "👤 Usuários",
+    "cat_msg": "💬 Mensagens",
+    "cat_admin": "👑 Administradores",
+    "cat_links": "🔗 Links de convite",
+    "cat_topics": "🧩 Tópicos/fórum",
+    "cat_group": "🎛️ Dados do grupo",
+    "cat_prot": "🛡️ Proteções automáticas",
+    "cat_react": "⚛️ Reações",
+    "cat_audit": "🧾 Auditoria",
+}
+
+
+def action_category_title(category: str) -> str:
+    return _ACTION_CATEGORY_TITLES.get(category, "Ações")
+
+
+def action_category_keyboard(session_id: str, category: str) -> list[list[TigraoButtonSpec]]:
+    rows: list[list[TigraoButtonSpec]] = []
+    for row in _ACTION_CATEGORY_ROWS.get(category, []):
+        rows.append([button(text, make_callback(session_id, action), style=style) for text, action, style in row])
+    rows.extend([
+        [button("⬅️ Categorias", make_callback(session_id, "act"), style="primary")],
+        [button("⬅️ Grupo", make_callback(session_id, "back"), style="primary"), button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
+    ])
+    return rows
+
+
+def destructive_actions_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
+    return [
+        [button("👤 Usuários", make_callback(session_id, "cat_user"), style="danger"), button("💬 Mensagens", make_callback(session_id, "cat_msg"), style="danger")],
+        [button("👑 Admins", make_callback(session_id, "cat_admin"), style="danger"), button("🔗 Links", make_callback(session_id, "cat_links"), style="primary")],
+        [button("🧩 Tópicos", make_callback(session_id, "cat_topics"), style="primary"), button("🎛️ Grupo", make_callback(session_id, "cat_group"), style="danger")],
+        [button("🛡️ Proteções", make_callback(session_id, "cat_prot"), style="danger"), button("⚛️ Reações", make_callback(session_id, "cat_react"), style="danger")],
+        [button("🧾 Auditoria", make_callback(session_id, "cat_audit"), style="primary")],
+        [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary"), button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
+    ]
+
+
 def join_requests_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("Ver pendentes 2h", make_callback(session_id, "join_pending"), style="primary")],
-        [button("Aceitar ID pendente", make_callback(session_id, "join_accept"), style="success")],
-        [button("Recusar ID pendente", make_callback(session_id, "join_decline"), style="danger")],
-        [button("Criar link com solicitação", make_callback(session_id, "join_link"), style="primary")],
-        [button("Autorizações automáticas", make_callback(session_id, "join_auto"), style="primary")],
-        [button("Voltar", make_callback(session_id, "back"), style="primary")],
-        [button("Fechar", make_callback(session_id, "close"), style="danger")],
+        [button("🕒 Ver pendentes 2h", make_callback(session_id, "join_pending"), style="primary")],
+        [button("✅ Aceitar ID pendente", make_callback(session_id, "join_accept"), style="success")],
+        [button("🚫 Recusar ID pendente", make_callback(session_id, "join_decline"), style="danger")],
+        [button("🔗 Criar link com solicitação", make_callback(session_id, "join_link"), style="primary")],
+        [button("⚙️ Autorizações automáticas", make_callback(session_id, "join_auto"), style="primary")],
+        [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
 
 
 def join_auto_question_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("Sim, informar IDs", make_callback(session_id, "join_auto"), style="success")],
-        [button("Não, só criar link", make_callback(session_id, "join_noauto"), style="primary")],
-        [button("Voltar", make_callback(session_id, "join"), style="primary")],
-        [button("Fechar", make_callback(session_id, "close"), style="danger")],
+        [button("✅ Sim, informar IDs", make_callback(session_id, "join_auto"), style="success")],
+        [button("🔗 Não, só criar link", make_callback(session_id, "join_noauto"), style="primary")],
+        [button("⬅️ Voltar", make_callback(session_id, "join"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
 
 
 def logs_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("Moderação", make_callback(session_id, "log_mod"), style="primary")],
-        [button("Uso", make_callback(session_id, "log_use"), style="primary")],
-        [button("Entradas", make_callback(session_id, "log_join"), style="primary")],
-        [button("Erros", make_callback(session_id, "log_err"), style="primary")],
-        [button("Voltar", make_callback(session_id, "back"), style="primary")],
-        [button("Fechar", make_callback(session_id, "close"), style="danger")],
-    ]
-
-
-def destructive_actions_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
-    return [
-        [button("Banir usuário", make_callback(session_id, "ban"), style="danger")],
-        [button("Banir com tempo livre", make_callback(session_id, "bantime"), style="danger")],
-        [button("Desbanir usuário", make_callback(session_id, "unban"), style="success")],
-        [button("Mutar 1 hora", make_callback(session_id, "mute1h"), style="danger")],
-        [button("Mutar 24 horas", make_callback(session_id, "mute24h"), style="danger")],
-        [button("Mutar indefinido", make_callback(session_id, "muteforever"), style="danger")],
-        [button("Mutar com tempo livre", make_callback(session_id, "mutetime"), style="danger")],
-        [button("Desmutar usuário", make_callback(session_id, "unmute"), style="success")],
-        [button("Apagar mensagem", make_callback(session_id, "delmsg"), style="danger")],
-        [button("Purge 1–100 mensagens", make_callback(session_id, "purge"), style="danger")],
-        [button("Fechar grupo / lockdown", make_callback(session_id, "lock"), style="danger")],
-        [button("Reabrir grupo / unlock", make_callback(session_id, "unlock"), style="success")],
-        [button("Fixar mensagem", make_callback(session_id, "pin"), style="primary")],
-        [button("Desfixar mensagem", make_callback(session_id, "unpin"), style="primary")],
-        [button("Limpar todos os fixados", make_callback(session_id, "unpinall"), style="danger")],
-        [button("Alterar título", make_callback(session_id, "settitle"), style="danger")],
-        [button("Alterar descrição", make_callback(session_id, "setdesc"), style="danger")],
-        [button("Promover admin", make_callback(session_id, "promote"), style="danger")],
-        [button("Rebaixar admin", make_callback(session_id, "demote"), style="danger")],
-        [button("Título custom de admin", make_callback(session_id, "admintitle"), style="danger")],
-        [button("Banir sender chat/canal", make_callback(session_id, "bansender"), style="danger")],
-        [button("Desbanir sender chat/canal", make_callback(session_id, "unbansender"), style="success")],
-        [button("Exportar link primário", make_callback(session_id, "linkexport"), style="danger")],
-        [button("Criar link completo", make_callback(session_id, "linkcreate"), style="primary")],
-        [button("Editar link", make_callback(session_id, "linkedit"), style="primary")],
-        [button("Revogar link", make_callback(session_id, "linkrevoke"), style="danger")],
-        [button("Alterar foto do grupo", make_callback(session_id, "setphoto"), style="danger")],
-        [button("Remover foto do grupo", make_callback(session_id, "delphoto"), style="danger")],
-        [button("Criar tópico", make_callback(session_id, "topiccreate"), style="primary")],
-        [button("Editar tópico", make_callback(session_id, "topicedit"), style="primary")],
-        [button("Fechar tópico", make_callback(session_id, "topicclose"), style="danger")],
-        [button("Reabrir tópico", make_callback(session_id, "topicreopen"), style="success")],
-        [button("Apagar tópico", make_callback(session_id, "topicdelete"), style="danger")],
-        [button("Limpar fixados do tópico", make_callback(session_id, "topicunpin"), style="danger")],
-        [button("Fechar tópico geral", make_callback(session_id, "topicgclose"), style="danger")],
-        [button("Reabrir tópico geral", make_callback(session_id, "topicgreopen"), style="success")],
-        [button("Renomear tópico geral", make_callback(session_id, "topicgedit"), style="primary")],
-        [button("Ocultar tópico geral", make_callback(session_id, "topicghide"), style="danger")],
-        [button("Reexibir tópico geral", make_callback(session_id, "topicgunhide"), style="success")],
-        [button("Limpar fixados do geral", make_callback(session_id, "topicgunpin"), style="danger")],
-        [button("Tag real de membro", make_callback(session_id, "settag"), style="danger")],
-        [button("Advertir usuário", make_callback(session_id, "warnadd"), style="danger")],
-        [button("Listar advertências", make_callback(session_id, "warnlist"), style="primary")],
-        [button("Limpar advertências", make_callback(session_id, "warnclear"), style="danger")],
-        [button("Status proteções", make_callback(session_id, "protstatus"), style="primary")],
-        [button("Config anti-flood", make_callback(session_id, "antiflood"), style="danger")],
-        [button("Config anti-raid", make_callback(session_id, "antiraid"), style="danger")],
-        [button("Config captcha", make_callback(session_id, "captcha"), style="danger")],
-        [button("Auditar admins/bots", make_callback(session_id, "admins"), style="primary")],
-        [button("Remover reação de mensagem", make_callback(session_id, "react1"), style="danger")],
-        [button("Remover reações recentes", make_callback(session_id, "reactall"), style="danger")],
-        [button("Voltar", make_callback(session_id, "back"), style="primary")],
-        [button("Fechar", make_callback(session_id, "close"), style="danger")],
+        [button("🛡️ Moderação", make_callback(session_id, "log_mod"), style="primary")],
+        [button("📈 Uso", make_callback(session_id, "log_use"), style="primary")],
+        [button("📥 Entradas", make_callback(session_id, "log_join"), style="primary")],
+        [button("⚠️ Erros", make_callback(session_id, "log_err"), style="primary")],
+        [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
 
 
 def confirm_cancel_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("Confirmar", make_callback(session_id, "confirm"), style="danger")],
-        [button("Cancelar", make_callback(session_id, "cancel"), style="primary")],
+        [button("✅ Confirmar", make_callback(session_id, "confirm"), style="danger")],
+        [button("↩️ Cancelar", make_callback(session_id, "cancel"), style="primary")],
     ]
 
 
 def ddx_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("Ativar DDX", make_callback(session_id, "ddxon"), style="success")],
-        [button("Desativar DDX", make_callback(session_id, "ddxoff"), style="danger")],
-        [button("Adicionar filtro", make_callback(session_id, "ddxadd"), style="primary")],
-        [button("Listar filtros", make_callback(session_id, "ddxlist"), style="primary")],
-        [button("Remover filtro", make_callback(session_id, "ddxremove"), style="danger")],
-        [button("Voltar", make_callback(session_id, "back"), style="primary")],
-        [button("Fechar", make_callback(session_id, "close"), style="danger")],
+        [button("✅ Ativar DDX", make_callback(session_id, "ddxon"), style="success")],
+        [button("🚫 Desativar DDX", make_callback(session_id, "ddxoff"), style="danger")],
+        [button("➕ Adicionar filtro", make_callback(session_id, "ddxadd"), style="primary")],
+        [button("📋 Listar filtros", make_callback(session_id, "ddxlist"), style="primary")],
+        [button("🗑️ Remover filtro", make_callback(session_id, "ddxremove"), style="danger")],
+        [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
 
 
 def reactions_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
-        [button("Voltar", make_callback(session_id, "back"), style="primary")],
-        [button("Fechar", make_callback(session_id, "close"), style="danger")],
+        [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]

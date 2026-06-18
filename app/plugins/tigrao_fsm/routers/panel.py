@@ -21,6 +21,8 @@ from app.bot.group_registry import list_groups, remember_group
 
 from .. import storage
 from ..keyboards import (
+    action_category_keyboard,
+    action_category_title,
     back_close_keyboard,
     confirm_cancel_keyboard,
     ddx_keyboard,
@@ -388,7 +390,7 @@ async def tigrao_waiting_photo(message: Message, bot: Any) -> None:
     }
     session.waiting_for = None
     session.selected_action = None
-    session.payload["nav_back"] = "act"
+    session.payload["nav_back"] = _action_back_target(session)
     details = [f"Arquivo Telegram: {file_id[:16]}...", f"Dimensão: {width or '?'}x{height or '?'}"]
     if size is not None:
         details.append(f"Tamanho: {size} bytes")
@@ -500,7 +502,7 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
         session.waiting_for = None
         await _show_group_detail(callback, bot, session_id, int(action[1:]))
     elif action == "logs":
-        await _safe_edit(callback, "Logs do Rodemotain", to_inline_keyboard_markup(logs_keyboard(session_id)))
+        await _safe_edit(callback, "📊 Logs do Rodemotain", to_inline_keyboard_markup(logs_keyboard(session_id)))
     elif action in {"log_mod", "log_use", "log_join", "log_err"}:
         await _show_logs(callback, session, action)
     elif action == "join":
@@ -523,6 +525,8 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
         await _safe_edit(callback, "Envie o ID Telegram pendente que deve ser recusado.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
     elif action == "act":
         await _show_actions(callback, session)
+    elif action in {"cat_user", "cat_msg", "cat_admin", "cat_links", "cat_topics", "cat_group", "cat_prot", "cat_react", "cat_audit"}:
+        await _show_action_category(callback, session, action)
     elif action in {"ban", "unban", "mute1h", "mute24h", "muteforever", "unmute"}:
         await _prompt_destructive_user(callback, session, action)
     elif action == "delmsg":
@@ -556,7 +560,7 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
     elif action == "react":
         await _safe_edit(
             callback,
-            "Reações\n\nAs ações reais de reação estão disponíveis abaixo e também dentro de Ações do grupo.",
+            "⚛️ Reações\n\nAções rápidas para remover reação específica ou limpar reações recentes.",
             to_inline_keyboard_markup([
                 [button("Remover reação de mensagem", make_callback(session.session_id, "react1"), style="danger")],
                 [button("Remover reações recentes", make_callback(session.session_id, "reactall"), style="danger")],
@@ -587,7 +591,10 @@ async def _go_back(callback: CallbackQuery, bot: Any, session: Any) -> None:
         await _show_ddx(callback, session)
         return
     if nav == "logs":
-        await _safe_edit(callback, "Logs do Rodemotain", to_inline_keyboard_markup(logs_keyboard(session.session_id)))
+        await _safe_edit(callback, "📊 Logs do Rodemotain", to_inline_keyboard_markup(logs_keyboard(session.session_id)))
+        return
+    if isinstance(nav, str) and nav.startswith("cat_"):
+        await _show_action_category(callback, session, nav)
         return
     if nav == "groups":
         await _show_groups(callback, session.session_id)
@@ -682,11 +689,17 @@ def _selected_group_or_text(session: Any) -> tuple[int | None, str | None, str |
     return int(session.selected_chat_id), session.selected_group_title or str(session.selected_chat_id), None
 
 
+def _action_back_target(session: Any) -> str:
+    """Retorna a categoria atual para o botão Voltar, sem perder compatibilidade."""
+    category = str(session.payload.get("active_action_category") or "")
+    return category if category.startswith("cat_") else "act"
+
+
 async def _show_join_menu(callback: CallbackQuery, session_id: str, prefix: str | None = None) -> None:
     session = get_session(session_id)
     if session is not None:
         session.payload["nav_back"] = None
-    text = "Solicitações de entrada"
+    text = "📥 Solicitações de entrada"
     if prefix:
         text = f"{prefix}\n\n{text}"
     await _safe_edit(callback, text, to_inline_keyboard_markup(join_requests_keyboard(session_id)))
@@ -895,12 +908,33 @@ async def _handle_join_decline_id(message: Message, bot: Any, session: Any, text
 
 async def _show_actions(callback: CallbackQuery, session: Any) -> None:
     session.payload["nav_back"] = None
+    session.payload.pop("active_action_category", None)
     chat_id, title, error = _selected_group_or_text(session)
     if error:
         await _safe_edit(callback, error, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
-    text = f"Ações do grupo\n\nGrupo: {title}\nID do grupo: {chat_id}\n\nToda ação exige confirmação explícita."
+    text = (
+        f"🎛️ Ações do grupo\n\n"
+        f"Grupo: {title}\nID do grupo: {chat_id}\n\n"
+        "Escolha uma categoria. As ações sensíveis continuam exigindo confirmação explícita."
+    )
     await _safe_edit(callback, text, to_inline_keyboard_markup(destructive_actions_keyboard(session.session_id)))
+
+
+async def _show_action_category(callback: CallbackQuery, session: Any, category: str) -> None:
+    chat_id, title, error = _selected_group_or_text(session)
+    if error:
+        await _safe_edit(callback, error, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        return
+    session.payload["active_action_category"] = category
+    session.payload["nav_back"] = "act"
+    title_text = action_category_title(category)
+    text = (
+        f"{title_text}\n\n"
+        f"Grupo: {title}\nID do grupo: {chat_id}\n\n"
+        "Escolha a função. Quando a ação alterar o grupo ou afetar um usuário, o painel pedirá confirmação."
+    )
+    await _safe_edit(callback, text, to_inline_keyboard_markup(action_category_keyboard(session.session_id, category)))
 
 
 _ACTION_LABELS = {
@@ -965,7 +999,7 @@ async def _prompt_destructive_user(callback: CallbackQuery, session: Any, action
         return
     session.selected_action = action
     session.waiting_for = "destructive_user_id"
-    session.payload["nav_back"] = "act"
+    session.payload["nav_back"] = _action_back_target(session)
     await _safe_edit(callback, f"{_ACTION_LABELS[action]}\n\nEnvie o ID Telegram numérico do alvo.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
@@ -976,7 +1010,7 @@ async def _prompt_delete_message(callback: CallbackQuery, session: Any) -> None:
         return
     session.selected_action = "delmsg"
     session.waiting_for = "destructive_message_id"
-    session.payload["nav_back"] = "act"
+    session.payload["nav_back"] = _action_back_target(session)
     await _safe_edit(callback, "Apagar mensagem\n\nEnvie o message_id numérico ou o link t.me da mensagem.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
@@ -1114,7 +1148,7 @@ async def _execute_pending_destructive_action(callback: CallbackQuery, bot: Any,
     session.payload.pop("pending_destructive_action", None)
     session.selected_action = None
     session.waiting_for = None
-    session.payload["nav_back"] = "act"
+    session.payload["nav_back"] = _action_back_target(session)
     await _safe_edit(callback, f"Resultado: {result.result}\n{result.detail}", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
@@ -1238,7 +1272,7 @@ async def _execute_pending_advanced_action(callback: CallbackQuery, bot: Any, se
     session.payload.pop("pending_advanced_action", None)
     session.selected_action = None
     session.waiting_for = None
-    session.payload["nav_back"] = "act"
+    session.payload["nav_back"] = _action_back_target(session)
     await _safe_edit(callback, f"Resultado: {result.result}\n{result.detail}", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
@@ -1316,7 +1350,7 @@ async def _prompt_advanced_text(callback: CallbackQuery, session: Any, action: s
         return
     session.selected_action = action
     session.waiting_for = "setphoto_upload" if action == "setphoto" else "advanced_text"
-    session.payload["nav_back"] = "act"
+    session.payload["nav_back"] = _action_back_target(session)
     await _safe_edit(callback, _ADVANCED_PROMPTS[action], to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
@@ -1347,7 +1381,7 @@ async def _prepare_advanced_confirmation(callback: CallbackQuery, bot: Any, sess
     session.selected_action = action
     session.waiting_for = None
     session.payload["pending_advanced_action"] = {"action": action}
-    session.payload["nav_back"] = "act"
+    session.payload["nav_back"] = _action_back_target(session)
     risk = {
         "lock": "O grupo será fechado para envio de membros comuns.",
         "unlock": "As permissões padrão de envio serão reabertas para membros comuns.",
@@ -1580,7 +1614,7 @@ async def _handle_advanced_text(message: Message, bot: Any, session: Any, text: 
 
     session.payload["pending_advanced_action"] = pending
     session.waiting_for = None
-    session.payload["nav_back"] = "act"
+    session.payload["nav_back"] = _action_back_target(session)
     await message.answer(
         _advanced_confirmation_text(session, action, details),
         reply_markup=to_inline_keyboard_markup(confirm_cancel_keyboard(session.session_id)),
@@ -1596,13 +1630,13 @@ async def _execute_advanced_no_text(callback: CallbackQuery, bot: Any, session: 
     if action == "admins":
         text = await format_admin_audit(bot, chat_id=chat_id)
         storage.log_event(action="admin_audit", result="consultado", detection="direta", surface="callback", chat_id=chat_id, chat_title=title, actor_user_id=actor, details="Auditoria de administradores consultada.")
-        session.payload["nav_back"] = "act"
+        session.payload["nav_back"] = _action_back_target(session)
         await _safe_edit(callback, text[:3900], to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
     if action == "protstatus":
         text = format_protection_status(chat_id=chat_id)
         storage.log_event(action="protection_status", result="consultado", detection="direta", surface="callback", chat_id=chat_id, chat_title=title, actor_user_id=actor, details="Status das proteções consultado.")
-        session.payload["nav_back"] = "act"
+        session.payload["nav_back"] = _action_back_target(session)
         await _safe_edit(callback, text[:3900], to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
     await _safe_edit(callback, "Ação sem texto desconhecida.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
@@ -1614,7 +1648,7 @@ async def _show_ddx(callback: CallbackQuery, session: Any) -> None:
     if error:
         await _safe_edit(callback, error, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
-    await _safe_edit(callback, f"DDX hard\n\nGrupo: {title}\nID do grupo: {chat_id}", to_inline_keyboard_markup(ddx_keyboard(session.session_id)))
+    await _safe_edit(callback, f"🧨 DDX hard\n\nGrupo: {title}\nID do grupo: {chat_id}", to_inline_keyboard_markup(ddx_keyboard(session.session_id)))
 
 
 async def _set_ddx_enabled(callback: CallbackQuery, session: Any, enabled: bool) -> None:

@@ -25,9 +25,13 @@ class TigraoFSMPlugin:
             return
         ensure_tables()
         from .routers.panel import router
+        from .routers.inline_x9 import router as inline_x9_router
 
         dispatcher.include_router(router)
         self.routers.append(router)
+        if inline_x9_router is not None:
+            dispatcher.include_router(inline_x9_router)
+            self.routers.append(inline_x9_router)
         self.mounted = True
 
     async def before_dispatch(self, bot: Any, update: Any) -> bool:
