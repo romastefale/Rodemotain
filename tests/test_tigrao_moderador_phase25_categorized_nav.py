@@ -13,13 +13,13 @@ def test_panel_navigation_is_grouped_by_emoji_categories() -> None:
     rows = group_admin_keyboard("abc123", destructive_actions_enabled=True, ddx_enabled=True)
     texts = _texts(rows)
 
-    assert "👤 Usuários" in texts
-    assert "💬 Mensagens" in texts
-    assert "👑 Admins" in texts
-    assert "🔗 Links" in texts
-    assert "🧩 Tópicos" in texts
-    assert "🎛️ Grupo" in texts
-    assert "🛡️ Proteções" in texts
+    assert "✅ 👤 Usuários" in texts
+    assert "🚫 💬 Mensagens" in texts
+    assert "🚫 👑 Admins" in texts
+    assert "✅ 🔗 Links" in texts
+    assert "✅ 🧩 Tópicos" in texts
+    assert "🚫 🎛️ Grupo" in texts
+    assert "🚨 🛡️ Proteções" in texts
     assert "🧾 Auditoria" in texts
     assert "🧨 DDX hard" in texts
 
@@ -39,9 +39,9 @@ def test_action_categories_expose_expected_functions() -> None:
     messages = _texts(action_category_keyboard("abc123", "cat_msg"))
     protections = _texts(action_category_keyboard("abc123", "cat_prot"))
 
-    assert "🚫 Banir" in users
-    assert "⏱️ Mute livre" in users
-    assert "🗑️ Apagar mensagem" in messages
-    assert "📌 Fixar" in messages
-    assert "🌊 Anti-flood" in protections
+    assert "🚫 Restringir usuário" in users
+    assert "✅ Liberar/restaurar" in users
+    assert "🗑️ Apagar/limpar" in messages
+    assert "✅ Fixar/organizar" in messages
+    assert "🚨 Anti-spam/entrada" in protections
     assert "🧨 DDX hard" in protections

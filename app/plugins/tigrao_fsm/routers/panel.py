@@ -23,6 +23,8 @@ from .. import storage
 from ..keyboards import (
     action_category_keyboard,
     action_category_title,
+    action_category_parent,
+    is_action_category_key,
     back_close_keyboard,
     confirm_cancel_keyboard,
     ddx_keyboard,
@@ -525,7 +527,7 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
         await _safe_edit(callback, "Envie o ID Telegram pendente que deve ser recusado.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
     elif action == "act":
         await _show_actions(callback, session)
-    elif action in {"cat_user", "cat_msg", "cat_admin", "cat_links", "cat_topics", "cat_group", "cat_prot", "cat_react", "cat_audit"}:
+    elif is_action_category_key(action):
         await _show_action_category(callback, session, action)
     elif action in {"ban", "unban", "mute1h", "mute24h", "muteforever", "unmute"}:
         await _prompt_destructive_user(callback, session, action)
@@ -927,12 +929,18 @@ async def _show_action_category(callback: CallbackQuery, session: Any, category:
         await _safe_edit(callback, error, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
     session.payload["active_action_category"] = category
-    session.payload["nav_back"] = "act"
+    parent = action_category_parent(category)
+    session.payload["nav_back"] = parent or "act"
     title_text = action_category_title(category)
+    help_text = (
+        "Escolha uma subcategoria. Botões com ✅ agrupam liberação/restauração; botões com 🚫/🗑️ agrupam ações restritivas ou destrutivas."
+        if parent is None
+        else "Escolha a função. Quando a ação alterar o grupo ou afetar um usuário, o painel pedirá confirmação."
+    )
     text = (
         f"{title_text}\n\n"
         f"Grupo: {title}\nID do grupo: {chat_id}\n\n"
-        "Escolha a função. Quando a ação alterar o grupo ou afetar um usuário, o painel pedirá confirmação."
+        f"{help_text}"
     )
     await _safe_edit(callback, text, to_inline_keyboard_markup(action_category_keyboard(session.session_id, category)))
 
