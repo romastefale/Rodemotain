@@ -7,7 +7,7 @@ from typing import Any
 from .runtime.ddx_runtime import handle as ddx_handle
 from .runtime.join_request_runtime import handle as join_request_handle
 from .runtime.anti_flood_runtime import handle as anti_flood_handle
-from .storage import ensure_tables
+from .storage import ensure_tables, remember_recent_message_from_update
 from .state import set_current_user as set_state_current_user
 
 
@@ -36,6 +36,7 @@ class TigraoFSMPlugin:
 
     async def before_dispatch(self, bot: Any, update: Any) -> bool:
         """Ponte segura para runtimes pré-dispatch do Tigrão FSM."""
+        remember_recent_message_from_update(update)
         if await join_request_handle(bot, update):
             return True
         if await anti_flood_handle(bot, update):

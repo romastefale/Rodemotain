@@ -69,16 +69,19 @@ async def test_join_menu_can_create_direct_invite_link_and_sends_persistent_mess
     assert callback.message.answers
     assert "Link direto de entrada" in callback.message.answers[-1][0]
     assert "https://t.me/+direct123" in callback.message.answers[-1][0]
-    assert "Link direto de entrada criado e enviado em mensagem individual" in callback.message.edits[-1][0]
+    assert "Link direto criado" in callback.message.edits[-1][0]
     assert "last_invite_link" not in session.payload
 
 
 def test_phase28_join_keyboard_exposes_direct_entry_link():
-    from app.plugins.tigrao_fsm.keyboards import join_requests_keyboard
+    from app.plugins.tigrao_fsm.keyboards import join_links_keyboard, join_requests_keyboard
 
-    labels = [button.text for row in join_requests_keyboard("abc123") for button in row]
+    main_labels = [button.text for row in join_requests_keyboard("abc123") for button in row]
+    assert "🔗 Criação de links" in main_labels
+
+    labels = [button.text for row in join_links_keyboard("abc123") for button in row]
     assert "🔗 Criar link com solicitação" in labels
-    assert "🔗 Criar link direto" in labels
+    assert "✅ Criar link direto" in labels
 
 
 def test_phase28_invite_parser_accepts_direct_link_alias():

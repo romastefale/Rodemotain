@@ -111,12 +111,16 @@ async def test_unban_is_safe_only_if_banned() -> None:
 
 
 def test_join_request_keyboard_exposes_accept_and_decline_without_duplicate_usage_button() -> None:
-    from app.plugins.tigrao_fsm.keyboards import join_requests_keyboard, logs_keyboard
+    from app.plugins.tigrao_fsm.keyboards import join_pending_keyboard, join_requests_keyboard, logs_keyboard
 
     join_rows = join_requests_keyboard("abc123")
     join_texts = [row[0].text for row in join_rows]
-    assert "📥 Aceitar ID pendente" in join_texts
-    assert "📤 Recusar ID pendente" in join_texts
+    assert "🕒 Pedidos pendentes" in join_texts
+
+    pending_rows = join_pending_keyboard("abc123")
+    pending_texts = [button.text for row in pending_rows for button in row]
+    assert "📥 Aceitar ID pendente" in pending_texts
+    assert "📤 Recusar ID pendente" in pending_texts
 
     log_rows = logs_keyboard("abc123")
     log_texts = [row[0].text for row in log_rows]

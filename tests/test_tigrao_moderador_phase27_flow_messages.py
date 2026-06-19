@@ -147,7 +147,7 @@ async def test_text_flow_deletes_previous_prompt_and_sends_new_confirmation(monk
 
     assert bot.deleted == [(555, 777)]
     assert selected_session.payload["pending_advanced_action"]["action"] == "mutetime"
-    assert "Confirmar ação" in msg.answers[-1][0]
+    assert "Confirmar" in msg.answers[-1][0]
     assert selected_session.payload.get("flow_prompt_message_id") is None
 
 

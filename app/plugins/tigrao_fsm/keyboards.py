@@ -30,6 +30,9 @@ CALLBACK_ACTIONS = frozenset({
     "log_join",
     "log_err",
     "join",
+    "join_pending_menu",
+    "join_links_menu",
+    "join_auto_menu",
     "join_link",
     "join_link_direct",
     "join_auto",
@@ -45,7 +48,6 @@ CALLBACK_ACTIONS = frozenset({
     "cat_links",
     "cat_group",
     "cat_prot",
-    "cat_react",
     "cat_audit",
     "sub_user_restore",
     "sub_user_restrict",
@@ -106,7 +108,6 @@ CALLBACK_ACTIONS = frozenset({
     "ddxadd",
     "ddxlist",
     "ddxremove",
-    "react",
     "confirm",
     "cancel",
     "panel",
@@ -288,13 +289,8 @@ def group_admin_keyboard(
             [button("💬 Mensagens", make_callback(session_id, "cat_msg"), style="danger"), button("👑 Admins", make_callback(session_id, "cat_admin"), style="danger")],
             [button("🎛️ Grupo", make_callback(session_id, "cat_group"), style="danger"), button("🛡️ Proteções", make_callback(session_id, "cat_prot"), style="danger")],
         ])
-    danger_tail: list[TigraoButtonSpec] = []
     if ddx_enabled:
-        danger_tail.append(button("🧨 DDX hard", make_callback(session_id, "ddx"), style="danger"))
-    if reactions_enabled:
-        danger_tail.append(button("⚛️ Reações", make_callback(session_id, "cat_react"), style="danger"))
-    if danger_tail:
-        rows.append(danger_tail)
+        rows.append([button("🧨 DDX hard", make_callback(session_id, "ddx"), style="danger")])
     rows.extend([
         [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary"), button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ])
@@ -311,6 +307,7 @@ _ACTION_CATEGORY_ROWS: dict[str, list[list[tuple[str, str, ButtonStyle]]]] = {
     "cat_msg": [
         [("📌 Fixar/organizar", "sub_msg_fix", "success")],
         [("🗑️ Apagar/limpar", "sub_msg_delete", "danger")],
+        [("⚛️ Reações", "sub_react_delete", "danger")],
     ],
     "cat_admin": [
         [("👑 Cargos de admin", "sub_admin_role", "danger")],
@@ -331,9 +328,6 @@ _ACTION_CATEGORY_ROWS: dict[str, list[list[tuple[str, str, ButtonStyle]]]] = {
         [("📊 Ver status", "sub_prot_status", "success")],
         [("🚨 Anti-spam/entrada", "sub_prot_rules", "danger")],
         [("🧨 DDX hard", "ddx", "danger")],
-    ],
-    "cat_react": [
-        [("🗑️ Remover reações", "sub_react_delete", "danger")],
     ],
     "cat_audit": [
         [("🧾 Auditar admins/bots", "admins", "primary")],
@@ -415,7 +409,7 @@ _ACTION_CATEGORY_PARENTS: dict[str, str] = {
     "sub_group_danger": "cat_group",
     "sub_prot_status": "cat_prot",
     "sub_prot_rules": "cat_prot",
-    "sub_react_delete": "cat_react",
+    "sub_react_delete": "cat_msg",
 }
 
 _ACTION_CATEGORY_TITLES: dict[str, str] = {
@@ -425,7 +419,6 @@ _ACTION_CATEGORY_TITLES: dict[str, str] = {
     "cat_links": "🔗 Links de convite",
     "cat_group": "🎛️ Dados do grupo",
     "cat_prot": "🛡️ Proteções automáticas",
-    "cat_react": "⚛️ Reações",
     "cat_audit": "🧾 Auditoria",
     "sub_user_restore": "👤 Usuários — liberar/restaurar",
     "sub_user_restrict": "👤 Usuários — restringir",
@@ -441,7 +434,7 @@ _ACTION_CATEGORY_TITLES: dict[str, str] = {
     "sub_group_danger": "🎛️ Grupo — fechar/remover",
     "sub_prot_status": "🛡️ Proteções — status",
     "sub_prot_rules": "🚨🛡️ Proteções — regras automáticas",
-    "sub_react_delete": "🗑️⚛️ Reações — remover",
+    "sub_react_delete": "⚛️💬 Mensagens — reações",
 }
 
 
@@ -477,20 +470,45 @@ def destructive_actions_keyboard(session_id: str) -> list[list[TigraoButtonSpec]
         [button("🧾 Auditoria", make_callback(session_id, "cat_audit"), style="primary")],
         [button("💬 Mensagens", make_callback(session_id, "cat_msg"), style="danger"), button("👑 Admins", make_callback(session_id, "cat_admin"), style="danger")],
         [button("🎛️ Grupo", make_callback(session_id, "cat_group"), style="danger"), button("🛡️ Proteções", make_callback(session_id, "cat_prot"), style="danger")],
-        [button("🧨 DDX hard", make_callback(session_id, "ddx"), style="danger"), button("⚛️ Reações", make_callback(session_id, "cat_react"), style="danger")],
+        [button("🧨 DDX hard", make_callback(session_id, "ddx"), style="danger")],
         [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary"), button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
 
 
 def join_requests_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
     return [
+        [button("🕒 Pedidos pendentes", make_callback(session_id, "join_pending_menu"), style="primary")],
+        [button("🔗 Criação de links", make_callback(session_id, "join_links_menu"), style="success")],
+        [button("⚙️ Autorização automática", make_callback(session_id, "join_auto_menu"), style="primary")],
+        [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
+    ]
+
+
+def join_pending_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
+    return [
         [button("🕒 Ver pendentes 2h", make_callback(session_id, "join_pending"), style="primary")],
         [button("📥 Aceitar ID pendente", make_callback(session_id, "join_accept"), style="success")],
         [button("📤 Recusar ID pendente", make_callback(session_id, "join_decline"), style="danger")],
+        [button("⬅️ Entrada", make_callback(session_id, "join"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
+    ]
+
+
+def join_links_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
+    return [
         [button("🔗 Criar link com solicitação", make_callback(session_id, "join_link"), style="primary")],
-        [button("🔗 Criar link direto", make_callback(session_id, "join_link_direct"), style="success")],
-        [button("⚙️ Autorizações automáticas", make_callback(session_id, "join_auto"), style="primary")],
-        [button("⬅️ Voltar", make_callback(session_id, "back"), style="primary")],
+        [button("✅ Criar link direto", make_callback(session_id, "join_link_direct"), style="success")],
+        [button("⬅️ Entrada", make_callback(session_id, "join"), style="primary")],
+        [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
+    ]
+
+
+def join_auto_keyboard(session_id: str) -> list[list[TigraoButtonSpec]]:
+    return [
+        [button("📝 Informar IDs autorizados", make_callback(session_id, "join_auto"), style="success")],
+        [button("🔗 Criar só o link", make_callback(session_id, "join_noauto"), style="primary")],
+        [button("⬅️ Entrada", make_callback(session_id, "join"), style="primary")],
         [button("✖️ Fechar", make_callback(session_id, "close"), style="danger")],
     ]
 

@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
+import traceback
+from datetime import datetime, timezone
 from io import BytesIO
+from pathlib import Path
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -16,7 +20,7 @@ try:
 except Exception:  # pragma: no cover
     BufferedInputFile = None
 
-from app.config.settings import TIGRAO_BOT_ACCESS_USER_IDS
+from app.config.settings import DATA_DIR, BASE_URL, WEBHOOK_PATH, WEBHOOK_SECRET, RUN_POLLING, SET_WEBHOOK_ON_STARTUP, ALLOWED_UPDATES, TIGRAO_BOT_ACCESS_USER_IDS, TIGRAO_JOIN_REQUEST_WEBAPP_URL
 from app.bot.group_registry import list_groups, remember_group
 
 from .. import storage
@@ -34,6 +38,9 @@ from ..keyboards import (
     home_keyboard,
     join_auto_question_keyboard,
     join_requests_keyboard,
+    join_pending_keyboard,
+    join_links_keyboard,
+    join_auto_keyboard,
     logs_keyboard,
     parse_callback,
     post_action_keyboard,
@@ -98,6 +105,7 @@ from ..advanced_actions import (
     format_warning_list,
     set_protection_action,
     format_protection_status,
+    unlock_permissions,
 )
 from ..permissions import get_bot_permissions, is_authorized_user, permissions_from_chat_member
 from ..services import approve_pending_join_request, create_join_request_link, decline_pending_join_request, format_logs
@@ -113,57 +121,42 @@ HOME_TEXT = "Rodemotain"
 SESSION_EXPIRED_TEXT = "Sessão expirada. Use /tigrao novamente."
 ENTRY_ACCESS_DENIED_TEXT = "Acesso negado.\nUse o botão para solucionar a entrada no grupo ou comando /captcha"
 GROUP_COMMAND_TTL_SECONDS = 300
+AUDIT_REPORT_TTL_SECONDS = 3600
 
 START_TEXT_AUTHORIZED = """🐯 Rodemotain
 
 Bot online.
 
-Comandos principais:
-/start - abre este tutorial rápido
-/help - lista comandos e recursos
-/tigrao - abre o painel de moderação
+/tigrao — abrir painel
+/help — ver recursos
 
-Uso básico:
-1. Adicione o bot como administrador no grupo.
-2. Dê as permissões necessárias: apagar mensagens, restringir membros, convidar usuários, fixar mensagens, gerenciar tópicos e alterar informações quando for usar essas funções.
-3. No privado, use /tigrao para abrir o painel.
-4. Selecione o grupo e execute as ações por botões. Ações sensíveis exigem Confirmar.
+Use em DM para administrar seus grupos.
+Ações sensíveis exigem Confirmar.
 """
 
 START_TEXT_UNAUTHORIZED = ENTRY_ACCESS_DENIED_TEXT
 
-HELP_TEXT_AUTHORIZED = """🐯 Rodemotain — comandos
+HELP_TEXT_AUTHORIZED = """🐯 Rodemotain — ajuda
 
-/start
-Mostra tutorial rápido e estado básico do bot.
+Comandos:
+/start — status rápido
+/help — esta ajuda
+/tigrao — painel em DM
+/diagnostico — relatório seguro .txt
+/diagnostico_total — teste real em grupo de teste
+/captcha código — fallback de entrada
 
-/help
-Lista comandos e recursos disponíveis.
+No painel:
+📥 entrada e links
+👤 usuários e warns
+💬 mensagens e reações
+👑 admins — promover/rebaixar administradores
+🎛️ grupo
+🛡️ proteções — anti-raid e anti-flood
+🧨 DDX
+📊 logs
 
-/tigrao
-Abre o painel de moderação. Em grupo, o bot tenta enviar o painel no seu privado. Em DM, abre direto.
-
-/captcha código
-Usado por novos membros para responder captcha de entrada quando o grupo está protegido por captcha.
-
-Recursos pelo painel:
-• seleção de grupos
-• ban, unban, mute, unmute e tempos customizados
-• apagar mensagem e purge em lote
-• DDX temporário/permanente
-• solicitações de entrada, fila, captcha, anti-raid e anti-flood
-• links de convite
-• promover/rebaixar administradores e título customizado
-• banir sender chat/canal
-• título, descrição e foto do grupo
-• tópicos/fórum
-• tags reais de membros
-• warnings/reincidência
-• fixados e reações
-• auditoria de administradores/bots
-• logs
-
-Observação: as funções dependem das permissões de administrador concedidas ao bot no Telegram.
+Ações sensíveis sempre pedem confirmação.
 """
 
 HELP_TEXT_UNAUTHORIZED = ENTRY_ACCESS_DENIED_TEXT
@@ -289,6 +282,38 @@ async def _send_persistent_invite_link(callback: CallbackQuery, *, chat_title: s
         logger.debug("RODEMOTAIN_PERSISTENT_INVITE_LINK_SEND_FAILED", exc_info=True)
 
 
+def _clean_telegram_error(detail: str) -> str:
+    text = str(detail or "").strip()
+    for prefix in (
+        "Falha Telegram: Telegram server says - Bad Request: ",
+        "Telegram server says - Bad Request: ",
+        "Falha Telegram: ",
+    ):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+    known = {
+        "RIGHT_FORBIDDEN": "O Telegram recusou os direitos solicitados. O alvo precisa estar no grupo, e o bot só pode conceder permissões que ele próprio possui.",
+        "USER_NOT_PARTICIPANT": "O usuário ainda não está no grupo. Envie um link de entrada e promova depois que ele entrar.",
+        "CHAT_ADMIN_REQUIRED": "O bot precisa ser administrador com a permissão correta para esta ação.",
+    }
+    return known.get(text, text or "Falha sem detalhe informado.")
+
+
+def _result_message(ok: bool, result: str, detail: str) -> str:
+    status = "✅ Concluído" if ok else "⚠️ Não concluído"
+    return f"{status}\n{_clean_telegram_error(detail)}\n\nO que deseja fazer agora?"
+def _confirm_text(session: Any, action: str, details: list[str]) -> str:
+    chat_id, title, _ = _selected_group_or_text(session)
+    lines = [
+        "Confirmar",
+        f"Grupo: {title}",
+        f"Ação: {_ACTION_LABELS.get(action, action)}",
+    ]
+    lines.extend(str(item) for item in details if str(item).strip())
+    lines.append("Toque em Confirmar para executar.")
+    return "\n".join(lines)
+
+
 def _home_markup(session_id: str) -> Any:
     return to_inline_keyboard_markup(home_keyboard(session_id))
 
@@ -352,6 +377,890 @@ async def _answer_group_temporarily(message: Message, bot: Any, text: str) -> No
 
 
 
+
+
+def _safe_getattr_value(obj: Any, name: str, default: Any = None) -> Any:
+    value = getattr(obj, name, default)
+    value = getattr(value, "value", value)
+    return value
+
+
+def _yes_no(value: Any) -> str:
+    return "sim" if bool(value) else "não"
+
+
+def _format_permission_lines(perms: Any) -> list[str]:
+    flags = [
+        ("administrador", getattr(perms, "is_admin", False)),
+        ("gerenciar chat", getattr(perms, "can_manage_chat", False)),
+        ("apagar mensagens/DDX/reações", getattr(perms, "can_delete_messages", False)),
+        ("restringir, mutar e banir", getattr(perms, "can_restrict_members", False)),
+        ("promover/rebaixar admins", getattr(perms, "can_promote_members", False)),
+        ("alterar dados do grupo", getattr(perms, "can_change_info", False)),
+        ("links e solicitações de entrada", getattr(perms, "can_invite_users", False)),
+        ("fixar mensagens", getattr(perms, "can_pin_messages", False)),
+        ("tags de membros", getattr(perms, "can_manage_tags", False)),
+    ]
+    active = [label for label, ok in flags if ok]
+    missing = [label for label, ok in flags if not ok]
+    return [
+        "Permissões ativas: " + (", ".join(active) if active else "nenhuma"),
+        "Permissões ausentes: " + (", ".join(missing) if missing else "nenhuma crítica"),
+    ]
+
+
+def _safe_filename_timestamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+
+def _serialize_object_public(obj: Any) -> dict[str, Any]:
+    """Extrai campos úteis sem despejar token/payload inteiro no relatório."""
+    fields = (
+        "id", "username", "first_name", "last_name", "title", "type", "status",
+        "url", "pending_update_count", "last_error_date", "last_error_message",
+        "max_connections", "allowed_updates", "bio", "description", "invite_link",
+    )
+    result: dict[str, Any] = {}
+    for field in fields:
+        try:
+            value = getattr(obj, field)
+        except Exception:
+            continue
+        value = getattr(value, "value", value)
+        if value is None:
+            continue
+        if isinstance(value, (str, int, float, bool)):
+            result[field] = value
+        elif isinstance(value, (list, tuple)):
+            result[field] = [getattr(v, "value", v) for v in value]
+        else:
+            result[field] = str(value)
+    return result
+
+
+async def _get_admins_compat(bot: Any, chat_id: int) -> list[Any]:
+    try:
+        return list(await bot.get_chat_administrators(chat_id=chat_id, return_bots=True))
+    except TypeError:
+        return list(await bot.get_chat_administrators(chat_id=chat_id))
+
+
+async def _run_real_diagnostic(bot: Any, *, actor_user_id: int, request_chat: Any | None, explicit_chat_id: int | None = None) -> tuple[Path, str]:
+    """Executa diagnóstico real sem ações destrutivas e salva relatório .txt."""
+    started = datetime.now(timezone.utc)
+    run_id = f"diag_{started.strftime('%Y%m%d_%H%M%S')}_{actor_user_id}"
+    surface = "dm" if _chat_type(request_chat) == "private" else "grupo"
+    request_chat_id = None
+    request_chat_title = None
+    if request_chat is not None:
+        try:
+            request_chat_id = int(getattr(request_chat, "id"))
+        except Exception:
+            request_chat_id = None
+        request_chat_title = getattr(request_chat, "title", None)
+    storage.log_event(
+        action="diagnostic_start",
+        result="iniciado",
+        detection="direta",
+        surface=surface,
+        chat_id=request_chat_id if _chat_type(request_chat) in {"group", "supergroup"} else None,
+        chat_title=request_chat_title,
+        actor_user_id=actor_user_id,
+        details="Diagnóstico real iniciado pelo operador autorizado.",
+        metadata={"run_id": run_id},
+    )
+
+    lines: list[str] = []
+    lines.append("RODEMOTAIN — DIAGNÓSTICO REAL")
+    lines.append("=" * 34)
+    lines.append(f"Run ID: {run_id}")
+    lines.append(f"Início: {started.isoformat()}")
+    lines.append(f"Operador: {actor_user_id}")
+    lines.append(f"Superfície: {surface}")
+    lines.append("")
+
+    def section(title: str) -> None:
+        lines.append("")
+        lines.append(title.upper())
+        lines.append("-" * len(title))
+
+    me = None
+    section("1. Configuração")
+    lines.append(f"BASE_URL: {BASE_URL or 'não definido'}")
+    lines.append(f"WEBHOOK_PATH: {WEBHOOK_PATH}")
+    lines.append(f"WEBHOOK_SECRET: {'definido' if WEBHOOK_SECRET else 'não definido'}")
+    lines.append(f"RUN_POLLING: {_yes_no(RUN_POLLING)}")
+    lines.append(f"SET_WEBHOOK_ON_STARTUP: {_yes_no(SET_WEBHOOK_ON_STARTUP)}")
+    lines.append(f"Mini App entrada: {TIGRAO_JOIN_REQUEST_WEBAPP_URL or 'não definido'}")
+    lines.append(f"Allowed updates: {', '.join(ALLOWED_UPDATES)}")
+    lines.append(f"DATA_DIR: {DATA_DIR}")
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        probe = DATA_DIR / f".{run_id}.probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        lines.append("DATA_DIR gravável: sim")
+    except Exception as exc:
+        lines.append(f"DATA_DIR gravável: não — {type(exc).__name__}: {exc}")
+
+    section("2. Bot API")
+    try:
+        me = await bot.get_me()
+        info = _serialize_object_public(me)
+        lines.append(f"getMe: sucesso")
+        lines.append(f"Bot: {info.get('first_name') or 'sem nome'} @{info.get('username') or 'sem username'}")
+        lines.append(f"ID do bot: {info.get('id')}")
+        storage.log_event(action="diagnostic_get_me", result="ok", detection="direta", surface=surface, actor_user_id=actor_user_id, details="getMe executado com sucesso.", metadata={"run_id": run_id, "bot": info})
+    except Exception as exc:
+        lines.append(f"getMe: falhou — {type(exc).__name__}: {exc}")
+        storage.log_event(action="diagnostic_get_me", result="falhou", detection="direta", surface=surface, actor_user_id=actor_user_id, details=str(exc), metadata={"run_id": run_id})
+
+    try:
+        webhook = await bot.get_webhook_info()
+        info = _serialize_object_public(webhook)
+        lines.append("getWebhookInfo: sucesso")
+        lines.append(f"Webhook URL: {info.get('url') or 'vazio'}")
+        lines.append(f"Updates pendentes: {info.get('pending_update_count', 'não informado')}")
+        if info.get("last_error_message"):
+            lines.append(f"Último erro do webhook: {info.get('last_error_message')}")
+        storage.log_event(action="diagnostic_webhook", result="ok", detection="direta", surface=surface, actor_user_id=actor_user_id, details="getWebhookInfo executado com sucesso.", metadata={"run_id": run_id, "webhook": info})
+    except Exception as exc:
+        lines.append(f"getWebhookInfo: falhou — {type(exc).__name__}: {exc}")
+        storage.log_event(action="diagnostic_webhook", result="falhou", detection="direta", surface=surface, actor_user_id=actor_user_id, details=str(exc), metadata={"run_id": run_id})
+
+    try:
+        commands = await bot.get_my_commands()
+        labels = [f"/{getattr(cmd, 'command', '')}" for cmd in commands]
+        lines.append(f"Comandos registrados: {', '.join(labels) if labels else 'nenhum'}")
+    except Exception as exc:
+        lines.append(f"getMyCommands: falhou — {type(exc).__name__}: {exc}")
+
+    section("3. Banco e logs")
+    try:
+        storage.ensure_tables()
+        log_id = storage.log_event(
+            action="diagnostic_storage_write",
+            result="ok",
+            detection="direta",
+            surface=surface,
+            chat_id=request_chat_id if _chat_type(request_chat) in {"group", "supergroup"} else None,
+            chat_title=request_chat_title,
+            actor_user_id=actor_user_id,
+            details="Escrita real de auditoria confirmada no banco.",
+            metadata={"run_id": run_id},
+        )
+        lines.append(f"Escrita no banco: sucesso — log_id {log_id}")
+        recent_count = len(storage.list_logs(limit=10))
+        lines.append(f"Leitura de logs recentes: sucesso — {recent_count} item(ns)")
+    except Exception as exc:
+        lines.append(f"Banco/logs: falhou — {type(exc).__name__}: {exc}")
+
+    section("4. Grupos conhecidos e permissões")
+    candidates: list[dict[str, Any]] = []
+    seen_chat_ids: set[int] = set()
+
+    def add_candidate(chat_id: int | None, title: str | None = None, source: str = "manual") -> None:
+        if chat_id is None:
+            return
+        if int(chat_id) in seen_chat_ids:
+            return
+        seen_chat_ids.add(int(chat_id))
+        candidates.append({"chat_id": int(chat_id), "title": title, "source": source})
+
+    add_candidate(explicit_chat_id, source="comando")
+    if _chat_type(request_chat) in {"group", "supergroup"}:
+        add_candidate(request_chat_id, request_chat_title, "grupo_atual")
+    for group in list_groups(limit=25):
+        add_candidate(int(group["chat_id"]), str(group.get("title") or group.get("chat_id")), "registro")
+
+    if not candidates:
+        lines.append("Nenhum grupo conhecido. Adicione o bot a um grupo e envie uma mensagem/comando para registrar.")
+    bot_id = None
+    if me is not None:
+        try:
+            bot_id = int(getattr(me, "id"))
+        except Exception:
+            bot_id = None
+    for index, item in enumerate(candidates[:25], start=1):
+        chat_id = int(item["chat_id"])
+        title = str(item.get("title") or chat_id)
+        lines.append("")
+        lines.append(f"Grupo {index}: {title}")
+        lines.append(f"ID: {chat_id}")
+        lines.append(f"Origem: {item.get('source')}")
+        check_result = "ok"
+        check_detail: list[str] = []
+        try:
+            chat = await bot.get_chat(chat_id)
+            chat_info = _serialize_object_public(chat)
+            if chat_info.get("title"):
+                title = str(chat_info.get("title"))
+            lines.append(f"getChat: sucesso — {title}")
+            if chat_info.get("username"):
+                lines.append(f"Username do grupo: @{chat_info.get('username')}")
+            check_detail.append("getChat ok")
+        except Exception as exc:
+            check_result = "falhou"
+            lines.append(f"getChat: falhou — {type(exc).__name__}: {exc}")
+            check_detail.append(f"getChat falhou: {exc}")
+        if bot_id is not None:
+            try:
+                member = await bot.get_chat_member(chat_id, bot_id)
+                status = _safe_getattr_value(member, "status", "desconhecido")
+                perms = permissions_from_chat_member(member)
+                lines.append(f"Status do bot: {status}")
+                lines.extend(_format_permission_lines(perms))
+                if not perms.is_admin:
+                    lines.append("Alerta: o bot não está como administrador neste grupo.")
+                if not perms.can_delete_messages:
+                    lines.append("Alerta: sem apagar mensagens/DDX/reações.")
+                if not perms.can_restrict_members:
+                    lines.append("Alerta: sem ban/mute/restrições.")
+                if not perms.can_invite_users:
+                    lines.append("Alerta: sem links e aprovação de entrada.")
+                check_detail.append("getChatMember ok")
+            except Exception as exc:
+                check_result = "falhou"
+                lines.append(f"getChatMember(bot): falhou — {type(exc).__name__}: {exc}")
+                check_detail.append(f"getChatMember falhou: {exc}")
+        try:
+            admins = await _get_admins_compat(bot, chat_id)
+            bot_admins = [adm for adm in admins if bool(getattr(getattr(adm, "user", None), "is_bot", False))]
+            lines.append(f"Administradores: {len(admins)} total; bots admins: {len(bot_admins)}")
+            for adm in bot_admins[:8]:
+                user = getattr(adm, "user", None)
+                uname = getattr(user, "username", None)
+                uid = getattr(user, "id", None)
+                st = _safe_getattr_value(adm, "status", "desconhecido")
+                lines.append(f"  • @{uname or 'sem_username'} — ID {uid} — {st}")
+            check_detail.append("getChatAdministrators ok")
+        except Exception as exc:
+            check_result = "falhou"
+            lines.append(f"getChatAdministrators: falhou — {type(exc).__name__}: {exc}")
+            check_detail.append(f"getChatAdministrators falhou: {exc}")
+        storage.log_event(
+            action="diagnostic_group_check",
+            result=check_result,
+            detection="direta",
+            surface=surface,
+            chat_id=chat_id,
+            chat_title=title,
+            actor_user_id=actor_user_id,
+            details="\n".join(check_detail),
+            metadata={"run_id": run_id, "source": item.get("source")},
+        )
+
+    section("5. Logs recentes do Rodemotain")
+    try:
+        rows = storage.list_logs(limit=20)
+        formatted = format_logs(rows)
+        lines.append(formatted)
+    except Exception as exc:
+        lines.append(f"Falhou ao formatar logs recentes: {type(exc).__name__}: {exc}")
+
+    finished = datetime.now(timezone.utc)
+    duration = (finished - started).total_seconds()
+    storage.log_event(
+        action="diagnostic_finished",
+        result="concluido",
+        detection="direta",
+        surface=surface,
+        chat_id=request_chat_id if _chat_type(request_chat) in {"group", "supergroup"} else None,
+        chat_title=request_chat_title,
+        actor_user_id=actor_user_id,
+        details=f"Diagnóstico concluído em {duration:.2f}s. Relatório salvo e enviado em DM quando possível.",
+        metadata={"run_id": run_id, "duration_seconds": duration, "groups_checked": len(candidates[:25])},
+    )
+    section("6. Fechamento")
+    lines.append(f"Fim: {finished.isoformat()}")
+    lines.append(f"Duração: {duration:.2f}s")
+    lines.append("Observação: o teste não executa ações destrutivas. Ele consulta permissões, webhook, comandos, grupos e grava logs reais de auditoria.")
+    text = "\n".join(lines).strip() + "\n"
+    reports_dir = DATA_DIR / "audit_reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    path = reports_dir / f"rodemotain_diagnostico_{_safe_filename_timestamp()}_{actor_user_id}.txt"
+    path.write_text(text, encoding="utf-8")
+    return path, text
+
+
+
+class _AuditMemoryHandler(logging.Handler):
+    """Handler temporário para capturar logs emitidos durante uma auditoria."""
+
+    def __init__(self, run_id: str, max_records: int = 1000) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.run_id = str(run_id)
+        self.max_records = int(max_records)
+        self.records: list[dict[str, Any]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:  # pragma: no cover - logging não deve quebrar teste
+        try:
+            if len(self.records) >= self.max_records:
+                return
+            exc_text = None
+            if record.exc_info:
+                exc_text = "".join(traceback.format_exception(*record.exc_info))
+            audit_data = getattr(record, "audit_data", None)
+            self.records.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+                "module": record.module,
+                "function": record.funcName,
+                "line": record.lineno,
+                "audit_data": _json_safe(audit_data),
+                "exception": exc_text,
+            })
+        except Exception:
+            pass
+
+
+class _AuditCapture:
+    """Captura separada de eventos, erros e raw data durante diagnóstico."""
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = str(run_id)
+        self.handler = _AuditMemoryHandler(run_id=run_id)
+        self.started = False
+
+    def start(self) -> None:
+        if self.started:
+            return
+        logging.getLogger().addHandler(self.handler)
+        self.started = True
+
+    def stop(self) -> list[dict[str, Any]]:
+        if self.started:
+            try:
+                logging.getLogger().removeHandler(self.handler)
+            except Exception:
+                pass
+            self.started = False
+        return list(self.handler.records)
+
+
+def _json_safe(value: Any, *, limit: int = 6000) -> Any:
+    """Converte objetos para JSON de auditoria sem quebrar o relatório."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        return f"<bytes:{len(value)}>"
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item, limit=limit) for item in list(value)[:80]]
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for idx, (key, item) in enumerate(value.items()):
+            if idx >= 80:
+                out["__truncated__"] = True
+                break
+            out[str(key)] = _json_safe(item, limit=limit)
+        return out
+    data = getattr(value, "model_dump", None)
+    if callable(data):
+        try:
+            return _json_safe(data(), limit=limit)
+        except Exception:
+            pass
+    data = getattr(value, "__dict__", None)
+    if isinstance(data, dict):
+        try:
+            return _json_safe(data, limit=limit)
+        except Exception:
+            pass
+    text = repr(value)
+    if len(text) > limit:
+        text = text[:limit] + "...<truncado>"
+    return text
+
+
+def _telegram_raw_error(exc: Exception | None = None, *, detail: str | None = None, value: Any | None = None) -> dict[str, Any] | None:
+    """Raw data seguro para diferenciar erro real de evento normal."""
+    if exc is None and not detail and value is None:
+        return None
+    raw: dict[str, Any] = {}
+    if exc is not None:
+        raw.update({
+            "exception_type": type(exc).__name__,
+            "exception_module": type(exc).__module__,
+            "exception_message": str(exc),
+            "exception_repr": repr(exc),
+            "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        })
+        for attr in ("message", "description", "error_code", "parameters", "method", "url"):
+            if hasattr(exc, attr):
+                raw[attr] = _json_safe(getattr(exc, attr))
+    if detail:
+        raw["detail"] = str(detail)
+        raw["detail_clean"] = _clean_telegram_error(str(detail))
+    if value is not None:
+        raw["returned_object"] = _json_safe(value)
+    return raw
+
+
+def _audit_kind(*, ok: bool, detail: str = "") -> str:
+    if ok:
+        return "evento"
+    cleaned = str(detail or "").upper()
+    if any(token in cleaned for token in ("RIGHT_FORBIDDEN", "CHAT_ADMIN_REQUIRED", "NOT ENOUGH RIGHTS", "PERMISSION", "PERMISS")):
+        return "erro_permissao"
+    if any(token in cleaned for token in ("USER_NOT_PARTICIPANT", "USER_ID_INVALID", "CHAT_NOT_FOUND")):
+        return "erro_alvo_chat"
+    if any(token in cleaned for token in ("TIMEOUT", "NETWORK", "CONNECTION")):
+        return "erro_rede"
+    return "erro_execucao"
+
+
+def _append_audit_sections(lines: list[str], *, results: list[dict[str, Any]], process_logs: list[dict[str, Any]]) -> None:
+    """Separa eventos de erros para evitar leitura equivocada no relatório final."""
+    events = [row for row in results if row.get("ok") is True]
+    failures = [row for row in results if row.get("ok") is not True]
+    process_errors = [row for row in process_logs if str(row.get("level", "")).upper() in {"WARNING", "ERROR", "CRITICAL"}]
+
+    lines.append("")
+    lines.append("REGISTRO DE EVENTOS")
+    lines.append("-------------------")
+    if not events:
+        lines.append("Nenhum evento de sucesso registrado.")
+    for row in events:
+        lines.append(f"• OK | {row.get('name')} | {row.get('duration_ms')} ms | {row.get('detail')}")
+
+    lines.append("")
+    lines.append("REGISTRO DE ERROS")
+    lines.append("-----------------")
+    if not failures and not process_errors:
+        lines.append("Nenhum erro real registrado durante o teste.")
+    for row in failures:
+        lines.append(f"• {row.get('audit_kind', 'erro')} | {row.get('name')} | {row.get('duration_ms')} ms")
+        lines.append(f"  Detalhe: {_clean_telegram_error(str(row.get('detail') or ''))}")
+    for row in process_errors[:80]:
+        lines.append(f"• {row.get('level')} | {row.get('logger')} | {row.get('message')}")
+
+    lines.append("")
+    lines.append("RAW DATA DE ERROS")
+    lines.append("------------------")
+    raw_errors = []
+    for row in failures:
+        raw_errors.append({
+            "name": row.get("name"),
+            "action": row.get("action"),
+            "audit_kind": row.get("audit_kind"),
+            "result": row.get("result"),
+            "duration_ms": row.get("duration_ms"),
+            "raw_error": row.get("raw_error"),
+        })
+    for row in process_errors[:80]:
+        raw_errors.append({"process_log": row})
+    if not raw_errors:
+        lines.append("[]")
+    else:
+        lines.append(json.dumps(_json_safe(raw_errors), ensure_ascii=False, indent=2))
+
+    lines.append("")
+    lines.append("RAW DATA DE EVENTOS")
+    lines.append("-------------------")
+    lines.append(json.dumps(_json_safe(events), ensure_ascii=False, indent=2))
+
+    lines.append("")
+    lines.append("LOGS DO PROCESSO DURANTE O TESTE")
+    lines.append("--------------------------------")
+    if not process_logs:
+        lines.append("Nenhum log do processo foi capturado no período.")
+    else:
+        lines.append(json.dumps(_json_safe(process_logs), ensure_ascii=False, indent=2))
+
+
+async def _delete_file_later(path: Path, *, delay_seconds: int = AUDIT_REPORT_TTL_SECONDS) -> None:
+    try:
+        await asyncio.sleep(delay_seconds)
+        Path(path).unlink(missing_ok=True)
+    except Exception:
+        logger.debug("RODEMOTAIN_AUDIT_REPORT_FILE_DELETE_FAILED", exc_info=True)
+
+
+def _schedule_delete_file(path: Path | None, *, delay_seconds: int = AUDIT_REPORT_TTL_SECONDS) -> None:
+    if path is None:
+        return
+    try:
+        asyncio.create_task(_delete_file_later(Path(path), delay_seconds=delay_seconds))
+    except RuntimeError:
+        logger.debug("RODEMOTAIN_AUDIT_REPORT_FILE_SCHEDULE_FAILED", exc_info=True)
+
+
+def _format_total_status(ok: bool) -> str:
+    return "OK" if ok else "FALHOU"
+
+
+def _total_result_detail(result: Any) -> str:
+    if hasattr(result, "detail"):
+        return str(getattr(result, "detail"))
+    return str(result) if result is not None else "sem detalhe"
+
+
+async def _total_step(
+    *,
+    lines: list[str],
+    results: list[dict[str, Any]],
+    name: str,
+    action: str,
+    runner: Any,
+    chat_id: int,
+    chat_title: str,
+    actor_user_id: int,
+    target_user_id: int | None = None,
+) -> Any:
+    """Executa uma etapa real do diagnóstico total e registra em log/relatório."""
+    started = datetime.now(timezone.utc)
+    raw_error: dict[str, Any] | None = None
+    try:
+        value = await runner() if callable(runner) else runner
+        ok = bool(getattr(value, "ok", True))
+        detail = _total_result_detail(value)
+        result_code = str(getattr(value, "result", "ok" if ok else "falhou"))
+        if not ok:
+            raw_error = _telegram_raw_error(detail=detail, value=value)
+    except Exception as exc:
+        value = None
+        ok = False
+        result_code = "falhou"
+        detail = f"{type(exc).__name__}: {exc}"
+        raw_error = _telegram_raw_error(exc, detail=detail)
+    duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+    status = _format_total_status(ok)
+    audit_kind = _audit_kind(ok=ok, detail=detail)
+    lines.append(f"[{status}] {name} — {_clean_telegram_error(detail) if not ok else detail} ({duration_ms} ms)")
+    row = {"name": name, "action": action, "ok": ok, "result": result_code, "detail": detail, "duration_ms": duration_ms, "audit_kind": audit_kind, "raw_error": raw_error}
+    results.append(row)
+    log_payload = {"diagnostic_step": row, "chat_id": chat_id, "target_user_id": target_user_id}
+    if ok:
+        logger.info("diagnostic_total_event", extra={"audit_data": log_payload})
+    else:
+        logger.error("diagnostic_total_error", extra={"audit_data": log_payload})
+    storage.log_event(
+        action=f"diagnostic_total_{action}",
+        result="ok" if ok else "falhou",
+        detection="direta",
+        surface="diagnostico_total",
+        chat_id=chat_id,
+        chat_title=chat_title,
+        actor_user_id=actor_user_id,
+        target_user_id=target_user_id,
+        details=detail,
+        metadata={"duration_ms": duration_ms, "audit_kind": audit_kind, "raw_error": raw_error},
+    )
+    return value
+
+
+def _extract_total_args(text: str, request_chat: Any | None) -> tuple[int | None, int | None, bool, str | None]:
+    """Aceita: /diagnostico_total <chat_id> [user_id] CONFIRMO_TOTAL.
+
+    Em grupo, também aceita /diagnostico_total CONFIRMO_TOTAL ou
+    /diagnostico_total <user_id> CONFIRMO_TOTAL.
+    """
+    raw_parts = str(text or "").split()
+    args = raw_parts[1:]
+    if not args or args[-1].upper() != "CONFIRMO_TOTAL":
+        return None, None, False, "Falta confirmação. Use CONFIRMO_TOTAL no final."
+    args = args[:-1]
+    chat_id: int | None = None
+    target_user_id: int | None = None
+    request_chat_type = _chat_type(request_chat)
+    request_chat_id = getattr(request_chat, "id", None)
+    if request_chat_type in {"group", "supergroup"}:
+        try:
+            chat_id = int(request_chat_id)
+        except Exception:
+            chat_id = None
+    ints: list[int] = []
+    for arg in args:
+        try:
+            ints.append(int(arg))
+        except Exception:
+            return None, None, False, f"Argumento inválido: {arg}"
+    if chat_id is None:
+        if not ints:
+            return None, None, False, "Informe o ID do grupo."
+        chat_id = ints[0]
+        if len(ints) >= 2:
+            target_user_id = ints[1]
+    else:
+        if len(ints) == 1:
+            # Em grupo, número positivo é alvo; número negativo troca o grupo.
+            if ints[0] < 0:
+                chat_id = ints[0]
+            else:
+                target_user_id = ints[0]
+        elif len(ints) >= 2:
+            chat_id = ints[0]
+            target_user_id = ints[1]
+    return chat_id, target_user_id, True, None
+
+
+def _is_member_admin(member: Any) -> bool:
+    status = _safe_getattr_value(member, "status", "")
+    return str(status) in {"administrator", "creator"}
+
+
+def _chat_permissions_snapshot(chat: Any) -> Any | None:
+    return getattr(chat, "permissions", None)
+
+
+async def _restore_chat_permissions(bot: Any, chat_id: int, original_permissions: Any | None) -> None:
+    if original_permissions is not None:
+        await bot.set_chat_permissions(chat_id=chat_id, permissions=original_permissions, use_independent_chat_permissions=True)
+    else:
+        await bot.set_chat_permissions(chat_id=chat_id, permissions=unlock_permissions(), use_independent_chat_permissions=True)
+
+
+async def _run_total_diagnostic(
+    bot: Any,
+    *,
+    actor_user_id: int,
+    request_chat: Any | None,
+    chat_id: int,
+    target_user_id: int | None = None,
+) -> tuple[Path, str]:
+    """Executa teste real em grupo de teste, com ações reversíveis quando possível."""
+    started = datetime.now(timezone.utc)
+    run_id = f"total_{started.strftime('%Y%m%d_%H%M%S')}_{actor_user_id}"
+    results: list[dict[str, Any]] = []
+    lines: list[str] = [
+        "RODEMOTAIN — DIAGNÓSTICO TOTAL REAL",
+        "=" * 38,
+        f"Run ID: {run_id}",
+        f"Início: {started.isoformat()}",
+        f"Operador: {actor_user_id}",
+        f"Grupo testado: {chat_id}",
+        f"Alvo de teste: {target_user_id if target_user_id else 'não informado'}",
+        "",
+        "Atenção: este modo executa ações reais no grupo informado e tenta restaurar tudo ao final.",
+        "Use somente em grupo de teste.",
+        "",
+    ]
+    storage.log_event(
+        action="diagnostic_total_start",
+        result="iniciado",
+        detection="direta",
+        surface="diagnostico_total",
+        chat_id=chat_id,
+        actor_user_id=actor_user_id,
+        target_user_id=target_user_id,
+        details="Diagnóstico total real iniciado com confirmação explícita.",
+        metadata={"run_id": run_id},
+    )
+    audit_capture = _AuditCapture(run_id=run_id)
+    audit_capture.start()
+    logger.info("diagnostic_total_capture_started", extra={"audit_data": {"run_id": run_id, "chat_id": chat_id, "target_user_id": target_user_id}})
+
+    me = await _total_step(
+        lines=lines,
+        results=results,
+        name="Bot API / getMe",
+        action="get_me",
+        runner=lambda: bot.get_me(),
+        chat_id=chat_id,
+        chat_title=str(chat_id),
+        actor_user_id=actor_user_id,
+        target_user_id=target_user_id,
+    )
+    bot_id = None
+    try:
+        bot_id = int(getattr(me, "id"))
+    except Exception:
+        pass
+
+    chat = await _total_step(
+        lines=lines,
+        results=results,
+        name="Grupo / getChat",
+        action="get_chat",
+        runner=lambda: bot.get_chat(chat_id),
+        chat_id=chat_id,
+        chat_title=str(chat_id),
+        actor_user_id=actor_user_id,
+        target_user_id=target_user_id,
+    )
+    chat_title = str(getattr(chat, "title", None) or chat_id)
+    original_title = str(getattr(chat, "title", None) or "")
+    original_description = getattr(chat, "description", None)
+    original_permissions = _chat_permissions_snapshot(chat)
+
+    bot_member = await _total_step(
+        lines=lines,
+        results=results,
+        name="Permissões do bot / getChatMember",
+        action="get_bot_member",
+        runner=lambda: bot.get_chat_member(chat_id, bot_id) if bot_id is not None else None,
+        chat_id=chat_id,
+        chat_title=chat_title,
+        actor_user_id=actor_user_id,
+        target_user_id=target_user_id,
+    )
+    permissions = permissions_from_chat_member(bot_member) if bot_member is not None else await get_bot_permissions(bot, chat_id)
+    lines.append("")
+    lines.append("Permissões detectadas:")
+    lines.extend(_format_permission_lines(permissions))
+    lines.append("")
+
+    await _total_step(lines=lines, results=results, name="Administradores / getChatAdministrators", action="admins", runner=lambda: _get_admins_compat(bot, chat_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    test_msg = None
+    async def send_probe() -> Any:
+        return await bot.send_message(chat_id=chat_id, text=f"Rodemotain teste total\nRun: {run_id}")
+    test_msg = await _total_step(lines=lines, results=results, name="Mensagem / enviar mensagem de teste", action="send_message", runner=send_probe, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    test_message_id = getattr(test_msg, "message_id", None)
+
+    if test_message_id:
+        await _total_step(lines=lines, results=results, name="Mensagem / editar mensagem de teste", action="edit_message", runner=lambda: bot.edit_message_text(chat_id=chat_id, message_id=test_message_id, text=f"Rodemotain teste total em andamento\nRun: {run_id}"), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+        await _total_step(lines=lines, results=results, name="Fixados / fixar mensagem de teste", action="pin", runner=lambda: pin_message(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, message_id=int(test_message_id), permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+        await _total_step(lines=lines, results=results, name="Fixados / desfixar mensagem de teste", action="unpin", runner=lambda: unpin_message(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, message_id=int(test_message_id), permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    await _total_step(lines=lines, results=results, name="Links / criar link direto adicional", action="link_direct", runner=lambda: create_invite_link_full(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions, name=f"diag direto {run_id[-8:]}", duration=timedelta(minutes=30), member_limit=1, creates_join_request=False), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    direct_link = _extract_invite_link(results[-1].get("detail", "")) if results else None
+    if direct_link:
+        await _total_step(lines=lines, results=results, name="Links / revogar link direto criado", action="link_revoke_direct", runner=lambda: revoke_invite_link_full(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions, invite_link=str(direct_link)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    await _total_step(lines=lines, results=results, name="Links / criar link com solicitação", action="link_request", runner=lambda: create_invite_link_full(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions, name=f"diag solic {run_id[-8:]}", duration=timedelta(minutes=30), member_limit=None, creates_join_request=True), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    request_link = _extract_invite_link(results[-1].get("detail", "")) if results else None
+    if request_link:
+        await _total_step(lines=lines, results=results, name="Links / revogar link com solicitação", action="link_revoke_request", runner=lambda: revoke_invite_link_full(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions, invite_link=str(request_link)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    await _total_step(lines=lines, results=results, name="Links / gerar novo link principal do bot", action="link_export_primary", runner=lambda: export_primary_invite_link(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    if original_title:
+        temp_title = (original_title[:110] + " • teste")[:128]
+        await _total_step(lines=lines, results=results, name="Grupo / alterar título temporário", action="set_title", runner=lambda: set_group_title(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, new_title=temp_title, permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+        await _total_step(lines=lines, results=results, name="Grupo / restaurar título original", action="restore_title", runner=lambda: set_group_title(bot, chat_id=chat_id, chat_title=temp_title, actor_user_id=actor_user_id, new_title=original_title, permissions=permissions), chat_id=chat_id, chat_title=temp_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    desc_test = f"Diagnóstico total Rodemotain {run_id}. Descrição temporária."
+    await _total_step(lines=lines, results=results, name="Grupo / alterar descrição temporária", action="set_description", runner=lambda: set_group_description(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, description=desc_test, permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Grupo / restaurar descrição original", action="restore_description", runner=lambda: set_group_description(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, description=str(original_description or ""), permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    await _total_step(lines=lines, results=results, name="Grupo / fechar grupo temporariamente", action="lockdown", runner=lambda: set_group_lockdown(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions, locked=True), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Grupo / restaurar permissões padrão", action="restore_permissions", runner=lambda: _restore_chat_permissions(bot, chat_id, original_permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    # Testes de banco/proteções/DDX não dependem de interação externa.
+    async def ddx_roundtrip() -> str:
+        fid = storage.create_ddx_filter(chat_id=chat_id, filter_text=f"rodemotain_diag_{run_id}", created_by=actor_user_id, duration=timedelta(minutes=5))
+        removed = storage.remove_ddx_filter(chat_id=chat_id, filter_id=fid)
+        if removed != 1:
+            raise RuntimeError("filtro DDX não foi removido")
+        return f"Filtro DDX criado e removido. ID: {fid}"
+    await _total_step(lines=lines, results=results, name="DDX / criar e remover filtro temporário", action="ddx_roundtrip", runner=ddx_roundtrip, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    for protection_name, config in (
+        ("anti_flood", {"limit": 3, "window_seconds": 10, "mute_minutes": 1}),
+        ("anti_raid", {"limit": 3, "window_seconds": 60, "mode": "queue"}),
+        ("captcha", {"enabled": True, "max_attempts": 2, "ttl_minutes": 5}),
+    ):
+        await _total_step(lines=lines, results=results, name=f"Proteções / ativar e desativar {protection_name}", action=f"protection_{protection_name}", runner=lambda n=protection_name, c=config: _total_protection_roundtrip(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, name=n, config=c), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    if target_user_id:
+        target_member = await _total_step(lines=lines, results=results, name="Alvo / getChatMember", action="target_get_member", runner=lambda: bot.get_chat_member(chat_id, int(target_user_id)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+        target_is_admin = _is_member_admin(target_member)
+        if is_protected_target(target_user_id, bot_user_id=bot_id, target_is_admin=target_is_admin):
+            lines.append("[PULADO] Ações sobre usuário: alvo protegido, admin/criador, owner autorizado ou o próprio bot.")
+        else:
+            add_warning_action(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), reason=f"diagnóstico total {run_id}")
+            lines.append("[OK] Warnings / advertência de teste registrada")
+            clear_warning_action(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id))
+            lines.append("[OK] Warnings / advertência de teste limpa")
+            await _total_step(lines=lines, results=results, name="Usuário / mutar alvo por 30s", action="mute_target", runner=lambda: mute_user_custom(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions, duration=timedelta(seconds=30)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+            await _total_step(lines=lines, results=results, name="Usuário / desmutar alvo", action="unmute_target", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="unmute", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+            await _total_step(lines=lines, results=results, name="Admin / promover alvo temporariamente", action="promote_target", runner=lambda: promote_user_admin(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions, role="moderator", custom_flags=None), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+            await _total_step(lines=lines, results=results, name="Admin / título customizado temporário", action="admin_title", runner=lambda: set_admin_custom_title(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), custom_title="Teste", permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+            await _total_step(lines=lines, results=results, name="Admin / rebaixar alvo", action="demote_target", runner=lambda: demote_user_admin(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+            await _total_step(lines=lines, results=results, name="Usuário / banir alvo", action="ban_target", runner=lambda: ban_user_custom(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions, duration=timedelta(seconds=35), revoke_messages=False), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+            await _total_step(lines=lines, results=results, name="Usuário / desbanir alvo", action="unban_target", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="unban", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    else:
+        lines.append("[PULADO] Testes com usuário alvo: informe target_user_id para testar mute/ban/warn/promover/rebaixar.")
+
+    if test_message_id:
+        await _total_step(lines=lines, results=results, name="Mensagem / apagar mensagem de teste", action="delete_test_message", runner=lambda: bot.delete_message(chat_id=chat_id, message_id=int(test_message_id)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    logger.info("diagnostic_total_capture_finished", extra={"audit_data": {"run_id": run_id, "steps": len(results)}})
+    process_logs = audit_capture.stop()
+    finished = datetime.now(timezone.utc)
+    ok_count = sum(1 for row in results if row.get("ok"))
+    fail_count = sum(1 for row in results if not row.get("ok"))
+    lines.append("")
+    lines.append("RESUMO")
+    lines.append("------")
+    lines.append(f"Etapas OK: {ok_count}")
+    lines.append(f"Etapas com falha: {fail_count}")
+    lines.append(f"Fim: {finished.isoformat()}")
+    lines.append(f"Duração: {(finished - started).total_seconds():.2f}s")
+    if target_user_id:
+        lines.append("Observação: se o teste de banimento foi executado, o alvo pode precisar entrar novamente no grupo pelo link.")
+    lines.append("Privacidade: este relatório será apagado do servidor e da DM do bot 1h após o envio, quando o Telegram permitir.")
+    _append_audit_sections(lines, results=results, process_logs=process_logs)
+    storage.log_event(action="diagnostic_total_finished", result="concluido" if fail_count == 0 else "concluido_com_falhas", detection="direta", surface="diagnostico_total", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id, details=f"Diagnóstico total finalizado. OK={ok_count}; falhas={fail_count}.", metadata={"run_id": run_id, "ok": ok_count, "failed": fail_count, "process_logs": len(process_logs)})
+    text = "\n".join(lines).strip() + "\n"
+    reports_dir = DATA_DIR / "audit_reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    path = reports_dir / f"rodemotain_diagnostico_total_{_safe_filename_timestamp()}_{actor_user_id}.txt"
+    path.write_text(text, encoding="utf-8")
+    return path, text
+
+
+async def _total_protection_roundtrip(*, chat_id: int, chat_title: str, actor_user_id: int, name: str, config: dict[str, Any]) -> str:
+    set_protection_action(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, name=name, enabled=True, config=config)
+    set_protection_action(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, name=name, enabled=False, config=config)
+    return f"{name} ativado e desativado para teste."
+
+
+@router.message(Command("diagnostico_total"))
+async def tigrao_total_diagnostic(message: Message, bot: Any) -> None:
+    """Executa diagnóstico total real em grupo de teste, com relatório .txt em DM."""
+    user_id = _uid(message)
+    if not _authorized(user_id):
+        await message.answer(ENTRY_ACCESS_DENIED_TEXT)
+        return
+    chat_id, target_user_id, confirmed, error = _extract_total_args(str(getattr(message, "text", "") or ""), getattr(message, "chat", None))
+    if not confirmed or chat_id is None:
+        help_text = (
+            "Diagnóstico total real\n\n"
+            "Use somente em grupo de teste.\n"
+            "Ele executa ações reais e tenta restaurar ao final.\n\n"
+            "Em DM:\n"
+            "/diagnostico_total -1001234567890 CONFIRMO_TOTAL\n"
+            "/diagnostico_total -1001234567890 123456789 CONFIRMO_TOTAL\n\n"
+            "Dentro do grupo:\n"
+            "/diagnostico_total CONFIRMO_TOTAL\n"
+            "/diagnostico_total 123456789 CONFIRMO_TOTAL\n\n"
+            "Com alvo, também testa mute, ban, warn, promover, título de admin e rebaixar."
+        )
+        if error:
+            help_text = f"{error}\n\n" + help_text
+        await message.answer(help_text)
+        return
+    ack_text = "Diagnóstico total iniciado. Vou enviar o .txt na sua DM."
+    if _chat_type(getattr(message, "chat", None)) in {"group", "supergroup"}:
+        await _answer_group_temporarily(message, bot, ack_text)
+    else:
+        await message.answer(ack_text)
+    try:
+        path, report_text = await _run_total_diagnostic(
+            bot,
+            actor_user_id=int(user_id),
+            request_chat=getattr(message, "chat", None),
+            chat_id=int(chat_id),
+            target_user_id=target_user_id,
+        )
+        caption = "Diagnóstico total concluído. Arquivo .txt anexado. Será apagado da DM e do servidor em 1h."
+        sent_report = None
+        if BufferedInputFile is not None:
+            sent_report = await bot.send_document(chat_id=int(user_id), document=BufferedInputFile(path.read_bytes(), filename=path.name), caption=caption)
+        else:  # pragma: no cover
+            sent_report = await bot.send_message(chat_id=int(user_id), text=report_text[:3900])
+        _schedule_delete_file(path, delay_seconds=AUDIT_REPORT_TTL_SECONDS)
+        _schedule_delete_message(bot, chat_id=int(user_id), message_id=getattr(sent_report, "message_id", None), delay_seconds=AUDIT_REPORT_TTL_SECONDS)
+        storage.log_event(action="diagnostic_total_report_sent", result="enviado", detection="direta", surface="dm", actor_user_id=int(user_id), chat_id=int(chat_id), target_user_id=target_user_id, details=f"Relatório total enviado e agendado para exclusão em 1h: {path.name}", metadata={"path": str(path), "ttl_seconds": AUDIT_REPORT_TTL_SECONDS})
+    except Exception as exc:
+        storage.log_event(action="diagnostic_total_failed", result="falhou", detection="direta", surface="dm", actor_user_id=int(user_id), chat_id=int(chat_id), target_user_id=target_user_id, details=str(exc))
+        await message.answer(f"Não consegui concluir o diagnóstico total: {_clean_telegram_error(str(exc))}")
+
+
 @router.message(Command("start"))
 async def tigrao_start(message: Message, bot: Any | None = None) -> None:
     """Tutorial rápido e resposta de vida do bot.
@@ -377,6 +1286,49 @@ async def tigrao_help(message: Message, bot: Any | None = None) -> None:
         await _answer_group_temporarily(message, bot, text)
         return
     await message.answer(text)
+
+
+@router.message(Command("diagnostico"))
+async def tigrao_diagnostic(message: Message, bot: Any) -> None:
+    """Executa diagnóstico real e envia relatório .txt em DM ao operador autorizado."""
+    user_id = _uid(message)
+    if not _authorized(user_id):
+        await message.answer(ENTRY_ACCESS_DENIED_TEXT)
+        return
+    text = str(getattr(message, "text", "") or "").strip()
+    explicit_chat_id: int | None = None
+    parts = text.split(maxsplit=1)
+    if len(parts) == 2:
+        candidate = parts[1].strip()
+        try:
+            explicit_chat_id = int(candidate)
+        except Exception:
+            await message.answer("Use: /diagnostico ou /diagnostico -1001234567890")
+            return
+    ack_text = "Diagnóstico iniciado. Vou enviar o arquivo .txt na sua DM."
+    if _chat_type(getattr(message, "chat", None)) in {"group", "supergroup"}:
+        await _answer_group_temporarily(message, bot, ack_text)
+    else:
+        await message.answer(ack_text)
+    try:
+        path, report_text = await _run_real_diagnostic(bot, actor_user_id=int(user_id), request_chat=getattr(message, "chat", None), explicit_chat_id=explicit_chat_id)
+        caption = "Diagnóstico concluído. Arquivo .txt anexado. Será apagado da DM e do servidor em 1h."
+        sent_report = None
+        if BufferedInputFile is not None:
+            sent_report = await bot.send_document(
+                chat_id=int(user_id),
+                document=BufferedInputFile(path.read_bytes(), filename=path.name),
+                caption=caption,
+            )
+        else:  # pragma: no cover
+            sent_report = await bot.send_message(chat_id=int(user_id), text=report_text[:3900])
+        _schedule_delete_file(path, delay_seconds=AUDIT_REPORT_TTL_SECONDS)
+        _schedule_delete_message(bot, chat_id=int(user_id), message_id=getattr(sent_report, "message_id", None), delay_seconds=AUDIT_REPORT_TTL_SECONDS)
+        storage.log_event(action="diagnostic_report_sent", result="enviado", detection="direta", surface="dm", actor_user_id=int(user_id), details=f"Relatório enviado e agendado para exclusão em 1h: {path.name}", metadata={"path": str(path), "ttl_seconds": AUDIT_REPORT_TTL_SECONDS})
+    except Exception as exc:
+        storage.log_event(action="diagnostic_failed", result="falhou", detection="direta", surface="dm", actor_user_id=int(user_id), details=str(exc))
+        await message.answer(f"Não consegui concluir o diagnóstico: {_clean_telegram_error(str(exc))}")
+
 
 @router.message(Command("tigrao"))
 async def tigrao_panel(message: Message, bot: Any) -> None:
@@ -521,6 +1473,7 @@ async def tigrao_join_request_polling(join_request: Any, bot: Any) -> None:
 async def tigrao_group_runtime_probe(message: Message, bot: Any) -> None:
     """Registra grupos e executa DDX hard no polling sem resposta pública."""
     _remember_group_chat(getattr(message, "chat", None))
+    storage.remember_recent_message(message)
     if await anti_flood_handle(bot, SimpleNamespace(message=message)):
         return
     await ddx_handle(bot, SimpleNamespace(message=message))
@@ -599,6 +1552,15 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
         await _create_join_link(callback, bot, session, creates_join_request=False)
     elif action == "join_noauto":
         await _show_join_menu(callback, session_id, "Link criado sem autoaceite adicional.")
+    elif action == "join_pending_menu":
+        session.payload["nav_back"] = "join"
+        await _safe_edit(callback, "📥 Entrada — pedidos pendentes\n\nConsulte pedidos salvos por até 2h, aceite por ID ou recuse por ID.", to_inline_keyboard_markup(join_pending_keyboard(session.session_id)))
+    elif action == "join_links_menu":
+        session.payload["nav_back"] = "join"
+        await _safe_edit(callback, "📥 Entrada — criação de links\n\nCrie link com solicitação de entrada ou link direto. O link gerado será enviado em mensagem individual separada.", to_inline_keyboard_markup(join_links_keyboard(session.session_id)))
+    elif action == "join_auto_menu":
+        session.payload["nav_back"] = "join"
+        await _safe_edit(callback, "📥 Entrada — autorização automática\n\nInforme IDs que poderão ser aprovados automaticamente quando pedirem entrada.", to_inline_keyboard_markup(join_auto_keyboard(session.session_id)))
     elif action == "join_auto":
         await _join_auto_or_list(callback, session)
     elif action == "join_pending":
@@ -606,11 +1568,11 @@ async def tigrao_callback(callback: CallbackQuery, bot: Any) -> None:
     elif action == "join_accept":
         session.waiting_for = "join_pending_id"
         session.payload["nav_back"] = "join"
-        await _safe_edit_flow_prompt(callback, session, "Envie o ID Telegram pendente que deve ser aceito.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit_flow_prompt(callback, session, "Envie o ID Telegram que será aceito.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
     elif action == "join_decline":
         session.waiting_for = "join_decline_id"
         session.payload["nav_back"] = "join"
-        await _safe_edit_flow_prompt(callback, session, "Envie o ID Telegram pendente que deve ser recusado.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit_flow_prompt(callback, session, "Envie o ID Telegram que será recusado.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
     elif action == "act":
         await _show_actions(callback, session)
     elif is_action_category_key(action):
@@ -839,11 +1801,11 @@ async def _create_join_link(callback: CallbackQuery, bot: Any, session: Any, *, 
     )
     await _send_persistent_invite_link(callback, chat_title=title, link=link, label=mode_label)
     if creates_join_request:
-        text = "Link com solicitação criado e enviado em mensagem individual.\n\nDeseja ativar autoaceite para IDs específicos?"
+        text = "✅ Link com solicitação criado.\nEnviado em mensagem separada.\n\nAtivar autoaceite para IDs?"
         await _safe_edit(callback, text, to_inline_keyboard_markup(join_auto_question_keyboard(session.session_id)))
     else:
         session.payload["nav_back"] = "join"
-        text = "Link direto de entrada criado e enviado em mensagem individual.\n\nEsse link não passa por solicitação de entrada."
+        text = "✅ Link direto criado.\nEnviado em mensagem separada.\n\nNão exige aprovação."
         await _safe_edit(callback, text, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
@@ -855,7 +1817,7 @@ async def _join_auto_or_list(callback: CallbackQuery, session: Any) -> None:
     if session.payload.get("last_invite_link"):
         session.waiting_for = "join_auto_ids"
         session.payload["nav_back"] = "join"
-        await _safe_edit_flow_prompt(callback, session, "Envie um ou mais IDs Telegram. Pode separar por espaço, vírgula ou quebra de linha.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+        await _safe_edit_flow_prompt(callback, session, "Envie os IDs autorizados.\nUse uma linha por ID.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
         return
     rows = storage.list_auto_accepts(chat_id=chat_id, limit=10)
     if not rows:
@@ -950,7 +1912,7 @@ async def _handle_join_pending_id(message: Message, bot: Any, session: Any, text
         return
     parsed = parse_user_ids(text)
     if len(parsed.valid) != 1:
-        await message.answer("Envie exatamente um ID Telegram numérico válido.")
+        await message.answer("Envie exatamente um ID numérico válido.")
         return
     user_id = parsed.valid[0]
     req = storage.find_pending_join_request(chat_id=chat_id, user_id=user_id)
@@ -982,7 +1944,7 @@ async def _handle_join_decline_id(message: Message, bot: Any, session: Any, text
         return
     user_id = _positive_int(text)
     if user_id is None:
-        await message.answer("Envie um ID Telegram numérico positivo.")
+        await message.answer("Envie um ID numérico válido.")
         return
     try:
         perms = await get_bot_permissions(bot, chat_id)
@@ -1091,6 +2053,34 @@ _ACTION_LABELS = {
 }
 
 
+def _format_recent_message_quotes(chat_id: int | None) -> str:
+    if chat_id is None:
+        return ""
+    rows = storage.list_recent_messages(chat_id=chat_id, limit=5)
+    if not rows:
+        return ""
+    lines = ["Últimas 5 mensagens registradas para consulta:"]
+    for row in rows:
+        sender = row.get("sender_full_name") or row.get("sender_username") or row.get("sender_user_id") or "autor desconhecido"
+        username = f" @{row.get('sender_username')}" if row.get("sender_username") else ""
+        sender_id = f"ID {row.get('sender_user_id')}" if row.get("sender_user_id") is not None else "ID não informado"
+        text = str(row.get("message_text") or "sem texto/caption").replace("\n", " ").strip()
+        if len(text) > 110:
+            text = text[:107] + "..."
+        lines.append(f"> msg {row.get('message_id')} — {sender}{username} — {sender_id}")
+        lines.append(f"> {text}")
+    return "\n".join(lines)
+
+
+def _advanced_prompt_text(action: str, chat_id: int | None) -> str:
+    base = _ADVANCED_PROMPTS[action]
+    if action in {"react1", "reactall", "purge", "pin", "unpin"}:
+        recent = _format_recent_message_quotes(chat_id)
+        if recent:
+            return f"{base}\n\n{recent}"
+    return base
+
+
 async def _prompt_destructive_user(callback: CallbackQuery, session: Any, action: str) -> None:
     chat_id, title, error = _selected_group_or_text(session)
     if error:
@@ -1110,7 +2100,11 @@ async def _prompt_delete_message(callback: CallbackQuery, session: Any) -> None:
     session.selected_action = "delmsg"
     session.waiting_for = "destructive_message_id"
     session.payload["nav_back"] = _action_back_target(session)
-    await _safe_edit_flow_prompt(callback, session, "Apagar mensagem\n\nEnvie o message_id numérico ou o link t.me da mensagem.", to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+    recent = _format_recent_message_quotes(chat_id)
+    prompt = "Apagar mensagem\n\nEnvie o message_id numérico ou o link t.me da mensagem."
+    if recent:
+        prompt += "\n\n" + recent
+    await _safe_edit_flow_prompt(callback, session, prompt, to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
 def _positive_int(text: str) -> int | None:
@@ -1124,7 +2118,7 @@ def _positive_int(text: str) -> int | None:
 async def _handle_destructive_user_id(message: Message, bot: Any, session: Any, text: str) -> None:
     user_id = _positive_int(text)
     if user_id is None:
-        await message.answer("Envie um ID Telegram numérico positivo.")
+        await message.answer("Envie um ID numérico válido.")
         return
     chat_id, title, error = _selected_group_or_text(session)
     if error:
@@ -1137,10 +2131,7 @@ async def _handle_destructive_user_id(message: Message, bot: Any, session: Any, 
         message,
         bot,
         session,
-        "Confirmar ação\n\n"
-        f"Grupo: {title}\nID do grupo: {chat_id}\n\n"
-        f"Ação: {_ACTION_LABELS.get(action, action)}\nID do alvo: {user_id}\n\n"
-        "A ação real só será executada após confirmação.",
+        _confirm_text(session, action, [f"Alvo: {user_id}"]),
     )
 
 
@@ -1167,10 +2158,7 @@ async def _handle_destructive_message_id(message: Message, bot: Any, session: An
         message,
         bot,
         session,
-        "Confirmar ação\n\n"
-        f"Grupo: {title}\nID do grupo: {chat_id}\n\n"
-        f"Ação: Apagar mensagem\nID da mensagem: {message_id}\n{source_line}\n\n"
-        "A ação real só será executada após confirmação.",
+        _confirm_text(session, "delmsg", [f"Mensagem: {message_id}", source_line]),
     )
 
 
@@ -1252,7 +2240,7 @@ async def _execute_pending_destructive_action(callback: CallbackQuery, bot: Any,
     session.selected_action = None
     session.waiting_for = None
     session.payload["nav_back"] = _action_back_target(session)
-    await _safe_edit(callback, f"Resultado: {result.result}\n{result.detail}\n\nDeseja voltar ao painel principal ou fechar?", to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
+    await _safe_edit(callback, _result_message(result.ok, result.result, result.detail), to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
 
 
 def _duration_from_pending(value: int | None) -> timedelta | None:
@@ -1372,68 +2360,35 @@ async def _execute_pending_advanced_action(callback: CallbackQuery, bot: Any, se
         link = _extract_invite_link(result.detail)
         if link:
             await _send_persistent_invite_link(callback, chat_title=title, link=link, label="Link de entrada gerado")
-    await _safe_edit(callback, f"Resultado: {result.result}\n{result.detail}\n\nDeseja voltar ao painel principal ou fechar?", to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
+    await _safe_edit(callback, _result_message(result.ok, result.result, result.detail), to_inline_keyboard_markup(post_action_keyboard(session.session_id)))
 
 
 _ADVANCED_PROMPTS = {
-    "bantime": (
-        "Banir com tempo livre\n\n"
-        "Envie: user_id | tempo\n"
-        "Exemplos: 123456 | 30m, 123456 | 7d, 123456 | permanente."
-    ),
-    "mutetime": (
-        "Mutar com tempo livre\n\n"
-        "Envie: user_id | tempo\n"
-        "Exemplos: 123456 | 10m, 123456 | 1h30m, 123456 | permanente."
-    ),
-    "purge": (
-        "Purge 1–100 mensagens\n\n"
-        "Envie IDs ou links separados por vírgula/espaço. Também aceita intervalo, por exemplo: 10-25."
-    ),
-    "pin": "Fixar mensagem\n\nEnvie o message_id ou link t.me da mensagem.",
-    "unpin": "Desfixar mensagem\n\nEnvie o message_id/link ou a palavra ultimo para desfixar o fixado mais recente.",
-    "settitle": "Alterar título\n\nEnvie o novo título do grupo, entre 1 e 128 caracteres.",
-    "setdesc": "Alterar descrição\n\nEnvie a nova descrição do grupo, até 255 caracteres. Envie '-' para limpar.",
-    "react1": (
-        "Remover reação de mensagem\n\n"
-        "Envie: message_id/link | user_id\n"
-        "Para reação feita como canal/chat, use: message_id/link | chat:<actor_chat_id>."
-    ),
-    "reactall": (
-        "Remover reações recentes do ator\n\n"
-        "Envie user_id ou chat:<actor_chat_id>. A Bot API remove até 10000 reações recentes desse ator."
-    ),
-    "promote": (
-        "Promover administrador\n\n"
-        "Envie: user_id | perfil\n"
-        "Perfis: leve, moderador, admin, total. Também aceita flags: delete, restrict, invite, pin, info, tags, promote."
-    ),
-    "demote": "Rebaixar administrador\n\nEnvie o user_id do administrador que deve ser rebaixado.",
-    "admintitle": "Título customizado de admin\n\nEnvie: user_id | título. Máximo 16 caracteres, sem emoji. Use título vazio para limpar.",
-    "bansender": "Banir sender chat/canal\n\nEnvie o sender_chat_id do canal/chat que envia como identidade.",
-    "unbansender": "Desbanir sender chat/canal\n\nEnvie o sender_chat_id do canal/chat.",
-    "linkcreate": (
-        "Criar link direto/completo\n\n"
-        "Envie: nome | expiração | limite | solicitação\n"
-        "Para link direto: Entrada VIP | 7d | 100 | não\n"
-        "Para link direto permanente: Entrada | permanente | 0 | direto\n"
-        "Para link com aprovação: Entrada | 2h | 0 | sim\n\n"
-        "O link adicional gerado será enviado em mensagem individual separada para não ser apagado pelo fluxo."
-    ),
-    "linkedit": (
-        "Editar link\n\n"
-        "Envie: link | nome | expiração | limite | solicitação\n"
-        "Exemplo: https://t.me/+abc | Entrada | 7d | 100 | não"
-    ),
-    "linkrevoke": "Revogar link\n\nEnvie o link de convite criado pelo bot.",
-    "setphoto": "Alterar foto do grupo\n\nEnvie uma imagem/foto nesta DM. A foto ficará pendente e só será aplicada depois do botão Confirmar.",
-    "settag": "Tag real de membro\n\nEnvie: user_id | tag. Máximo 16 caracteres, sem emoji. Use tag vazia para limpar.",
-    "warnadd": "Advertir usuário\n\nEnvie: user_id | motivo.",
-    "warnlist": "Listar advertências\n\nEnvie user_id específico ou a palavra todos.",
-    "warnclear": "Limpar advertências\n\nEnvie user_id específico ou a palavra todos.",
-    "antiflood": "Config anti-flood\n\nEnvie: on/off | limite | janela | mute. Exemplo: on | 5 | 10s | 10m.",
-    "antiraid": "Config anti-raid\n\nEnvie: on/off | limite | janela | ação. Ação: queue, decline ou lock. Exemplo: on | 5 | 1m | queue.",
-    "captcha": "Config captcha\n\nEnvie: on/off | tempo | tentativas. Exemplo: on | 5m | 3.",
+    "bantime": "⏱️ Ban por tempo\nEnvie:\nuser_id tempo\n\nEx.: 123456789 30m\nTambém aceita: user_id | tempo.",
+    "mutetime": "⏱️ Mute livre\nEnvie:\nuser_id tempo\n\nEx.: 123456789 1h30m\nTambém aceita: user_id | tempo.",
+    "purge": "🧹 Purge\nEnvie IDs, links ou intervalo.\nEx.: 10-25 ou 10 11 12.",
+    "pin": "📌 Fixar\nEnvie o ID ou link da mensagem.",
+    "unpin": "📍 Desfixar\nEnvie ID/link ou ultimo.",
+    "settitle": "✏️ Título\nEnvie o novo título.\nLimite: 128 caracteres.",
+    "setdesc": "📝 Descrição\nEnvie a nova descrição.\nUse - para limpar.",
+    "react1": "⚛️ Remover reação\nEnvie:\nmensagem | user_id\nou\nmensagem | chat:<id>",
+    "reactall": "🧹 Limpar reações recentes\nEnvie user_id ou chat:<id>.",
+    "promote": "⬆️ Promover admin\nEnvie:\nuser_id perfil\n\nPerfis: leve, moderador, admin, total.\nO usuário precisa estar no grupo.",
+    "demote": "⬇️ Rebaixar admin\nEnvie o ID do admin.",
+    "admintitle": "🎖️ Título de admin\nEnvie:\nuser_id\ntítulo\n\nMáx.: 16 caracteres. Sem emoji.",
+    "bansender": "📡 Banir sender\nEnvie o ID do canal/chat sender.",
+    "unbansender": "📡 Desbanir sender\nEnvie o ID do canal/chat sender.",
+    "linkcreate": "➕ Criar link adicional\nEnvie 4 linhas:\nnome\nexpiração\nlimite\nsolicitação\n\nEx.:\nEntrada VIP\n7d\n100\nnão\n\nTambém aceita: nome | expiração | limite | solicitação.",
+    "linkedit": "✏️ Editar link\nEnvie 5 linhas:\nlink\nnome\nexpiração\nlimite\nsolicitação",
+    "linkrevoke": "🧨 Revogar link\nEnvie o link criado pelo bot.",
+    "setphoto": "🖼️ Foto do grupo\nEnvie a imagem nesta DM.\nDepois confirme.",
+    "settag": "🏷️ Tag de membro\nEnvie:\nuser_id\ntag\n\nMáx.: 16 caracteres.",
+    "warnadd": "⚠️ Advertir\nEnvie:\nuser_id\nmotivo",
+    "warnlist": "📋 Ver warns\nEnvie um ID ou todos.",
+    "warnclear": "🧹 Limpar warns\nEnvie um ID ou todos.",
+    "antiflood": "🌊 Anti-flood\nEnvie:\non/off\nlimite\njanela\nmute\n\nEx.:\non\n5\n10s\n10m",
+    "antiraid": "🚨 Anti-raid\nEnvie:\non/off\nlimite\njanela\nação\n\nAção: queue, decline ou lock.",
+    "captcha": "🧩 Captcha\nEnvie:\non/off\ntempo\ntentativas\n\nEx.:\non\n5m\n3",
 }
 
 
@@ -1445,7 +2400,7 @@ async def _prompt_advanced_text(callback: CallbackQuery, session: Any, action: s
     session.selected_action = action
     session.waiting_for = "setphoto_upload" if action == "setphoto" else "advanced_text"
     session.payload["nav_back"] = _action_back_target(session)
-    await _safe_edit_flow_prompt(callback, session, _ADVANCED_PROMPTS[action], to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
+    await _safe_edit_flow_prompt(callback, session, _advanced_prompt_text(action, chat_id), to_inline_keyboard_markup(back_close_keyboard(session.session_id)))
 
 
 async def _revalidated_permissions(bot: Any, chat_id: int):
@@ -1453,14 +2408,7 @@ async def _revalidated_permissions(bot: Any, chat_id: int):
 
 
 def _advanced_confirmation_text(session: Any, action: str, details: list[str]) -> str:
-    chat_id, title, _ = _selected_group_or_text(session)
-    return (
-        "Confirmar ação\n\n"
-        f"Grupo: {title}\nID do grupo: {chat_id}\n\n"
-        f"Ação: {_ACTION_LABELS.get(action, action)}\n"
-        + "\n".join(details)
-        + "\n\nA ação real só será executada após tocar em Confirmar."
-    )
+    return _confirm_text(session, action, details)
 
 
 async def _prepare_advanced_confirmation(callback: CallbackQuery, bot: Any, session: Any, action: str) -> None:
@@ -1604,7 +2552,7 @@ async def _handle_advanced_text(message: Message, bot: Any, session: Any, text: 
     elif action == "warnlist":
         user_id = None if text.strip().casefold() in {"todos", "all", "*"} else _positive_int(text)
         if user_id is None and text.strip().casefold() not in {"todos", "all", "*"}:
-            await message.answer("Envie user_id numérico ou todos.")
+            await message.answer("Envie um ID ou todos.")
             return
         await _send_flow_result(message, bot, session, format_warning_list(chat_id=chat_id, user_id=user_id))
         session.waiting_for = None
@@ -1613,7 +2561,7 @@ async def _handle_advanced_text(message: Message, bot: Any, session: Any, text: 
     elif action == "warnclear":
         user_id = None if text.strip().casefold() in {"todos", "all", "*"} else _positive_int(text)
         if user_id is None and text.strip().casefold() not in {"todos", "all", "*"}:
-            await message.answer("Envie user_id numérico ou todos.")
+            await message.answer("Envie um ID ou todos.")
             return
         pending = {"action": action, "user_id": user_id}
         details = ["Alvo: todas as advertências" if user_id is None else f"ID do alvo: {user_id}"]
@@ -1732,13 +2680,15 @@ async def _prompt_ddx_filter(callback: CallbackQuery, session: Any) -> None:
         callback,
         session,
         "Envie o filtro DDX hard.\n\n"
-        "Formato: texto | tempo\n"
+        "Formato por quebra de linha:\n"
+        "linha 1: texto do filtro\n"
+        "linha 2: tempo\n\n"
         "Exemplos:\n"
-        "spam | 30m\n"
-        "link proibido | 1h30m\n"
-        "palavra proibida | 2d 4h\n"
-        "termo | até 2026-07-01T12:00:00Z\n"
-        "golpe | permanente\n\n"
+        "spam\n30m\n\n"
+        "link proibido\n1h30m\n\n"
+        "palavra proibida\n2d 4h\n\n"
+        "termo\naté 2026-07-01T12:00:00Z\n\n"
+        "golpe\npermanente\n\n"
         "Se enviar só o texto, o filtro fica permanente.",
         to_inline_keyboard_markup(back_close_keyboard(session.session_id)),
     )
@@ -1754,7 +2704,7 @@ async def _handle_ddx_filter_text(message: Message, bot: Any, session: Any, text
         await message.answer(
             "Filtro DDX inválido. "
             f"Motivo: {parsed.error}.\n\n"
-            "Use: texto | tempo. Exemplos: spam | 30m, spam | 1h30m, termo | até 2026-07-01T12:00:00Z. Envie só o texto para permanente."
+            "Use duas linhas: texto do filtro e tempo. Exemplo: spam\n30m. Envie só o texto para permanente."
         )
         return
     filter_id = storage.create_ddx_filter(

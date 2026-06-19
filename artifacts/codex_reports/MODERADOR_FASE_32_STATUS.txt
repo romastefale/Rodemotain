@@ -1,0 +1,3 @@
+FASE32 OK
+compileall: ok
+pytest: 107 passed

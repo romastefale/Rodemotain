@@ -103,7 +103,7 @@ async def test_phase15_setphoto_photo_upload_only_prepares_confirmation(monkeypa
     assert selected_session.payload["pending_advanced_action"]["action"] == "setphoto"
     assert selected_session.payload["pending_advanced_action"]["file_id"] == "big-file-id"
     assert bot.calls == []
-    assert "Confirmar ação" in msg.answers[-1][0]
+    assert "Confirmar" in msg.answers[-1][0]
 
 
 @pytest.mark.asyncio
@@ -121,7 +121,7 @@ async def test_phase15_setphoto_confirm_downloads_and_changes_photo(monkeypatch,
     assert bot.calls[-1][1]["chat_id"] == CHAT_ID
     assert bot.calls[-1][1]["photo"]["payload"] == b"jpg-bytes"
     assert selected_session.payload.get("pending_advanced_action") is None
-    assert "Resultado: concluido" in cb.message.edits[-1][0]
+    assert "✅ Concluído" in cb.message.edits[-1][0]
 
 
 def test_phase15_captcha_challenge_stores_and_uses_configured_max_attempts(isolated_storage) -> None:

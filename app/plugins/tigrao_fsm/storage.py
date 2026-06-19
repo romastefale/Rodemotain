@@ -178,6 +178,21 @@ def ensure_tables() -> None:
         except Exception:
             pass
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tigrao_captcha_lookup ON tigrao_captcha_challenges(user_id, code, status, expires_at)"))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS tigrao_recent_messages (
+                chat_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                chat_title TEXT,
+                sender_user_id INTEGER,
+                sender_username TEXT,
+                sender_full_name TEXT,
+                message_text TEXT,
+                message_date TEXT,
+                saved_at TEXT NOT NULL,
+                PRIMARY KEY (chat_id, message_id)
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tigrao_recent_messages_chat ON tigrao_recent_messages(chat_id, message_id)"))
 
 
 def log_event(
@@ -597,6 +612,113 @@ def remove_ddx_filter(*, chat_id: int, filter_id: int) -> int:
         )
         return int(getattr(result, "rowcount", 0) or 0)
 
+
+
+# ---------- Mensagens recentes para ações contextuais ----------
+
+def _chat_type_value(chat: Any) -> str | None:
+    value = getattr(chat, "type", None)
+    value = getattr(value, "value", value)
+    return str(value) if value is not None else None
+
+
+def _full_name_from_user(user: Any) -> str | None:
+    if user is None:
+        return None
+    full = getattr(user, "full_name", None)
+    if full:
+        return str(full)
+    first = str(getattr(user, "first_name", "") or "").strip()
+    last = str(getattr(user, "last_name", "") or "").strip()
+    name = " ".join(part for part in (first, last) if part).strip()
+    return name or None
+
+
+def remember_recent_message(message: Any) -> None:
+    """Guarda resumo das últimas mensagens de grupo para prompts do painel.
+
+    O painel por DM não tem acesso visual ao histórico do grupo. Este cache
+    pequeno permite mostrar os 5 últimos IDs úteis quando uma ação depende de
+    message_id/link, especialmente reações e apagamento.
+    """
+    chat = getattr(message, "chat", None)
+    if _chat_type_value(chat) not in {"group", "supergroup"}:
+        return
+    try:
+        chat_id = int(getattr(chat, "id"))
+        message_id = int(getattr(message, "message_id"))
+    except Exception:
+        return
+    user = getattr(message, "from_user", None)
+    text_value = getattr(message, "text", None) or getattr(message, "caption", None) or ""
+    text_value = str(text_value or "").replace("\x00", "").strip()
+    if len(text_value) > 300:
+        text_value = text_value[:297] + "..."
+    message_date = getattr(message, "date", None)
+    if isinstance(message_date, datetime):
+        if message_date.tzinfo is None:
+            message_date = message_date.replace(tzinfo=timezone.utc)
+        message_date_iso = message_date.isoformat()
+    else:
+        message_date_iso = None
+    ensure_tables()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO tigrao_recent_messages (
+                chat_id, message_id, chat_title, sender_user_id, sender_username,
+                sender_full_name, message_text, message_date, saved_at
+            ) VALUES (
+                :chat_id, :message_id, :chat_title, :sender_user_id, :sender_username,
+                :sender_full_name, :message_text, :message_date, :saved_at
+            )
+            ON CONFLICT(chat_id, message_id) DO UPDATE SET
+                chat_title=excluded.chat_title,
+                sender_user_id=excluded.sender_user_id,
+                sender_username=excluded.sender_username,
+                sender_full_name=excluded.sender_full_name,
+                message_text=excluded.message_text,
+                message_date=excluded.message_date,
+                saved_at=excluded.saved_at
+        """), {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "chat_title": getattr(chat, "title", None),
+            "sender_user_id": int(getattr(user, "id")) if getattr(user, "id", None) is not None else None,
+            "sender_username": getattr(user, "username", None),
+            "sender_full_name": _full_name_from_user(user),
+            "message_text": text_value,
+            "message_date": message_date_iso,
+            "saved_at": _to_iso(utcnow()),
+        })
+        # Mantém o cache pequeno por grupo.
+        conn.execute(text("""
+            DELETE FROM tigrao_recent_messages
+            WHERE chat_id=:chat_id AND message_id NOT IN (
+                SELECT message_id FROM tigrao_recent_messages
+                WHERE chat_id=:chat_id
+                ORDER BY message_id DESC
+                LIMIT 50
+            )
+        """), {"chat_id": chat_id})
+
+
+def remember_recent_message_from_update(update: Any) -> None:
+    for attr in ("message", "edited_message"):
+        message = getattr(update, attr, None)
+        if message is not None:
+            remember_recent_message(message)
+
+
+def list_recent_messages(*, chat_id: int, limit: int = 5) -> list[dict[str, Any]]:
+    ensure_tables()
+    with engine.begin() as conn:
+        rows = conn.execute(text("""
+            SELECT * FROM tigrao_recent_messages
+            WHERE chat_id=:chat_id
+            ORDER BY message_id DESC
+            LIMIT :limit
+        """), {"chat_id": int(chat_id), "limit": int(limit)}).mappings().all()
+    return [dict(row) for row in rows]
 
 # ---------- Warnings / reincidência ----------
 

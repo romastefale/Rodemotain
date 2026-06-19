@@ -8,6 +8,19 @@ from datetime import datetime, timedelta, timezone
 _SPLIT_RE = re.compile(r"[\s,]+")
 
 
+def _split_compact_fields(text: str, expected: int | None = None) -> list[str]:
+    """Aceita campos por quebra de linha ou pelo separador antigo |."""
+    raw = str(text or "").strip()
+    if "|" in raw:
+        parts = [p.strip() for p in raw.split("|")]
+    else:
+        parts = [p.strip() for p in raw.splitlines() if p.strip()]
+    if expected is not None:
+        while len(parts) < expected:
+            parts.append("")
+    return parts
+
+
 @dataclass(frozen=True, slots=True)
 class ParsedDuration:
     duration: timedelta | None
@@ -140,11 +153,17 @@ class ParsedDdxFilterInput:
 
 
 def parse_ddx_filter_input(text: str) -> ParsedDdxFilterInput:
-    """Lê entrada do painel DDX no formato ``texto | duração``.
+    """Lê entrada do painel DDX por quebra de linha.
 
-    Exemplos aceitos: ``spam``; ``spam | 30m``; ``spam | 1h30m``;
-    ``convite externo | 2d 4h``; ``golpe | permanente``;
-    ``termo | até 2026-07-01T12:00:00Z``.
+    Formato preferencial:
+
+    ``texto do filtro``
+    ``tempo``
+
+    Exemplos aceitos: ``spam\n30m``; ``link proibido\n1h30m``;
+    ``termo\naté 2026-07-01T12:00:00Z``; ``golpe\npermanente``.
+    Se houver apenas uma linha, o filtro fica permanente. O formato antigo
+    ``texto | tempo`` continua aceito como compatibilidade.
     """
     raw = str(text or "").strip()
     if not raw:
@@ -156,6 +175,14 @@ def parse_ddx_filter_input(text: str) -> ParsedDdxFilterInput:
         left, right = raw.rsplit("|", 1)
         filter_text = left.strip()
         duration_raw = right.strip()
+    else:
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        if len(lines) >= 2:
+            filter_text = "\n".join(lines[:-1]).strip()
+            duration_raw = lines[-1].strip()
+        else:
+            filter_text = raw.strip()
+    if duration_raw is not None:
         parsed_duration = parse_duration(duration_raw)
         if parsed_duration.error:
             return ParsedDdxFilterInput(filter_text=filter_text, duration=None, duration_raw=duration_raw, error=parsed_duration.error)
@@ -496,11 +523,11 @@ def _contains_emoji_or_control(value: str) -> bool:
 
 def parse_admin_title_action(text: str) -> ParsedAdminTitleAction:
     raw = str(text or "").strip()
-    if "|" not in raw:
-        return ParsedAdminTitleAction(user_id=None, error="use user_id | título")
-    left, right = raw.split("|", 1)
-    user_raw = left.strip()
-    title = right.strip()
+    parts = _split_compact_fields(raw)
+    if len(parts) < 2:
+        return ParsedAdminTitleAction(user_id=None, error="envie user_id e título")
+    user_raw = parts[0].strip()
+    title = "\n".join(parts[1:]).strip() if "|" not in raw else parts[1].strip()
     if not user_raw.isdecimal() or int(user_raw) <= 0:
         return ParsedAdminTitleAction(user_id=None, error="ID de usuário inválido")
     if not 0 <= len(title) <= 16:
@@ -555,9 +582,7 @@ def parse_invite_create_action(text: str) -> ParsedInviteCreateAction:
     raw = str(text or "").strip()
     if not raw:
         raw = "Tigrão | permanente | 0 | não"
-    parts = [p.strip() for p in raw.split("|")]
-    while len(parts) < 4:
-        parts.append("")
+    parts = _split_compact_fields(raw, expected=4)
     if len(parts) > 4:
         return ParsedInviteCreateAction(None, None, None, None, False, error="use no máximo 4 campos")
     name = parts[0] or None
@@ -598,10 +623,13 @@ def _looks_like_invite_link(value: str) -> bool:
 
 def parse_invite_edit_action(text: str) -> ParsedInviteEditAction:
     raw = str(text or "").strip()
-    if "|" not in raw:
-        return ParsedInviteEditAction(invite_link=None, error="use link | nome | expiração | limite | solicitação")
-    link, rest = raw.split("|", 1)
-    link = link.strip()
+    if "|" in raw:
+        link, rest = raw.split("|", 1)
+        link = link.strip()
+    else:
+        parts = _split_compact_fields(raw, expected=5)
+        link = parts[0].strip()
+        rest = "\n".join(parts[1:4+1])
     if not _looks_like_invite_link(link):
         return ParsedInviteEditAction(invite_link=link, error="link de convite inválido")
     create = parse_invite_create_action(rest)
@@ -631,11 +659,16 @@ class ParsedUserTextAction:
 
 def parse_user_text_action(text: str, *, max_text_len: int, allow_empty_text: bool = False, label: str = "texto") -> ParsedUserTextAction:
     raw = str(text or "").strip()
-    if "|" not in raw:
-        return ParsedUserTextAction(user_id=None, error=f"use user_id | {label}")
-    left, right = raw.split("|", 1)
-    user_raw = left.strip()
-    value = right.strip()
+    if "|" in raw:
+        left, right = raw.split("|", 1)
+        user_raw = left.strip()
+        value = right.strip()
+    else:
+        parts = _split_compact_fields(raw)
+        if len(parts) < 2:
+            return ParsedUserTextAction(user_id=None, error=f"envie user_id e {label}")
+        user_raw = parts[0].strip()
+        value = "\n".join(parts[1:]).strip()
     if not user_raw.isdecimal() or int(user_raw) <= 0:
         return ParsedUserTextAction(user_id=None, error="ID de usuário inválido")
     if not allow_empty_text and not value:
@@ -739,9 +772,7 @@ def _onoff(raw: str) -> tuple[bool | None, str | None]:
 
 
 def parse_antiflood_setting(text: str) -> ParsedProtectionSetting:
-    parts = [p.strip() for p in str(text or "").split("|")]
-    while len(parts) < 4:
-        parts.append("")
+    parts = _split_compact_fields(str(text or ""), expected=4)
     enabled, err = _onoff(parts[0] or "on")
     if err:
         return ParsedProtectionSetting(False, {}, err)
@@ -761,9 +792,7 @@ def parse_antiflood_setting(text: str) -> ParsedProtectionSetting:
 
 
 def parse_antiraid_setting(text: str) -> ParsedProtectionSetting:
-    parts = [p.strip() for p in str(text or "").split("|")]
-    while len(parts) < 4:
-        parts.append("")
+    parts = _split_compact_fields(str(text or ""), expected=4)
     enabled, err = _onoff(parts[0] or "on")
     if err:
         return ParsedProtectionSetting(False, {}, err)
@@ -781,9 +810,7 @@ def parse_antiraid_setting(text: str) -> ParsedProtectionSetting:
 
 
 def parse_captcha_setting(text: str) -> ParsedProtectionSetting:
-    parts = [p.strip() for p in str(text or "").split("|")]
-    while len(parts) < 3:
-        parts.append("")
+    parts = _split_compact_fields(str(text or ""), expected=3)
     enabled, err = _onoff(parts[0] or "on")
     if err:
         return ParsedProtectionSetting(False, {}, err)

@@ -191,7 +191,7 @@ async def test_empirical_text_advanced_flow_prepares_confirmation_but_does_not_c
     assert selected_session.payload["pending_advanced_action"]["user_id"] == 222
     assert selected_session.payload["pending_advanced_action"]["duration_seconds"] == 5400
     assert bot.calls == []
-    assert "Confirmar ação" in msg.answers[-1][0]
+    assert "Confirmar" in msg.answers[-1][0]
 
 
 @pytest.mark.asyncio
@@ -215,7 +215,7 @@ async def test_empirical_confirm_button_executes_prepared_mute_and_clears_pendin
     assert bot.calls and bot.calls[0][0] == "restrict_chat_member"
     assert bot.calls[0][1]["chat_id"] == CHAT_ID
     assert bot.calls[0][1]["user_id"] == 222
-    assert "Resultado: concluido" in callback.message.edits[-1][0]
+    assert "✅ Concluído" in callback.message.edits[-1][0]
 
 
 @pytest.mark.asyncio
@@ -228,7 +228,7 @@ async def test_empirical_lockdown_requires_confirm_before_set_chat_permissions(s
 
     assert selected_session.payload["pending_advanced_action"] == {"action": "lock"}
     assert bot.calls == []
-    assert "Confirmar ação" in prepare_cb.message.edits[-1][0]
+    assert "Confirmar" in prepare_cb.message.edits[-1][0]
 
     confirm_cb = FakeCallback(selected_session.session_id, "confirm")
     await panel._confirm_pending_action(confirm_cb, bot, selected_session)

@@ -1,0 +1,3 @@
+FASE36 OK
+compileall: ok
+pytest: 114 passed

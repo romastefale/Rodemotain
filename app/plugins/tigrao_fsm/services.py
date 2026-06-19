@@ -101,20 +101,148 @@ async def decline_pending_join_request(bot: Any, request: TigraoJoinRequest, *, 
     return request.result_detail
 
 
+_ACTION_LABELS = {
+    "join_request_received": "Solicitação de entrada recebida",
+    "join_auto_accept": "Aprovação automática de entrada",
+    "join_auto_ids_saved": "IDs autorizados para autoaceite",
+    "join_link_create": "Criação de link de entrada",
+    "join_pending_approve": "Aprovação manual de entrada",
+    "join_pending_decline": "Recusa manual de entrada",
+    "captcha_created": "Captcha de entrada criado",
+    "captcha_approve": "Captcha aprovado",
+    "captcha_decline": "Captcha recusado",
+    "anti_raid": "Anti-raid acionado",
+    "anti_flood": "Anti-flood acionado",
+    "ddx_delete": "Mensagem apagada por DDX",
+    "ddx_filter_add": "Filtro DDX adicionado",
+    "ddx_filter_remove": "Filtro DDX removido",
+    "destructive_confirm": "Ação destrutiva confirmada",
+    "advanced_confirm": "Ação avançada confirmada",
+    "admin_audit": "Auditoria de administradores",
+    "export_invite_link": "Novo link principal do bot",
+    "create_invite_link": "Link adicional criado",
+    "edit_invite_link": "Link editado",
+    "revoke_invite_link": "Link revogado",
+    "promote_admin": "Promoção de administrador",
+    "demote_admin": "Rebaixamento de administrador",
+    "set_admin_title": "Título de administrador",
+    "delete_message_reaction": "Reação removida de mensagem",
+    "delete_all_message_reactions": "Reações recentes removidas",
+}
+
+_RESULT_LABELS = {
+    "aprovado": "aprovado",
+    "pendente": "pendente",
+    "salvo": "salvo",
+    "criado": "criado",
+    "concluido": "concluído",
+    "consultado": "consultado",
+    "falhou": "falhou",
+    "falhou_sem_permissao": "falhou por falta de permissão",
+    "bloqueado_sem_permissao": "bloqueado por falta de permissão",
+    "bloqueado": "bloqueado",
+    "recusado": "recusado",
+    "acionado": "acionado",
+    "apagado": "apagado",
+}
+
+_SURFACE_LABELS = {
+    "dm": "mensagem privada",
+    "callback": "botão do painel",
+    "chat_join_request": "solicitação de entrada",
+    "before_dispatch": "monitoramento automático",
+    "banco_pendente": "pedido pendente salvo",
+    "join_request_webapp": "Mini App de entrada",
+}
+
+_DETECTION_LABELS = {
+    "direta": "direta",
+    "indireta": "indireta",
+    "automatica": "automática",
+    "mini_app": "Mini App",
+}
+
+
+def _safe_json(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        import json
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _person_label(row: dict[str, Any], prefix: str) -> str:
+    username = row.get(f"{prefix}_username")
+    full_name = row.get(f"{prefix}_full_name")
+    user_id = row.get(f"{prefix}_user_id")
+    chunks: list[str] = []
+    if full_name:
+        chunks.append(str(full_name))
+    if username:
+        chunks.append("@" + str(username).lstrip("@"))
+    if user_id is not None:
+        chunks.append(f"ID {user_id}")
+    return " — ".join(chunks) if chunks else "não informado"
+
+
+def _compact_metadata_lines(metadata: dict[str, Any]) -> list[str]:
+    labels = {
+        "method": "Método",
+        "invite_link": "Link",
+        "result_link": "Link resultante",
+        "query_id": "Query ID",
+        "ttl_seconds": "Expiração",
+        "max_attempts": "Tentativas máximas",
+        "limit": "Limite",
+        "window_seconds": "Janela",
+        "action": "Ação configurada",
+        "user_chat_id": "User chat ID",
+    }
+    lines: list[str] = []
+    for key, label in labels.items():
+        if key not in metadata or metadata[key] in (None, ""):
+            continue
+        value = metadata[key]
+        if key.endswith("seconds"):
+            value = f"{value}s"
+        lines.append(f"{label}: {value}")
+    return lines
+
+
 def format_logs(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "Nenhum registro encontrado."
     parts: list[str] = []
     for row in rows[:10]:
-        actor = row.get("actor_username") or row.get("actor_full_name") or row.get("actor_user_id") or "não informado"
-        target = row.get("target_username") or row.get("target_full_name") or row.get("target_user_id") or "não informado"
-        parts.append(
-            f"{row.get('created_at')}\n"
-            f"Ato: {row.get('action')}\n"
-            f"Resultado: {row.get('result')}\n"
-            f"Autor: {actor}\n"
-            f"Alvo: {target}\n"
-            f"Onde: {row.get('surface')}\n"
-            f"Detalhe: {row.get('details') or 'sem detalhe'}"
-        )
+        action = str(row.get("action") or "")
+        result = str(row.get("result") or "")
+        surface = str(row.get("surface") or "")
+        detection = str(row.get("detection") or "")
+        metadata = _safe_json(row.get("metadata_json"))
+        lines = [
+            f"🕒 {row.get('created_at')}",
+            f"Ato: {_ACTION_LABELS.get(action, action or 'não informado')}" + (f" ({action})" if action and action not in _ACTION_LABELS.values() else ""),
+            f"Resultado: {_RESULT_LABELS.get(result, result or 'não informado')}",
+            f"Autor: {_person_label(row, 'actor')}",
+            f"Alvo: {_person_label(row, 'target')}",
+        ]
+        if row.get("chat_title") or row.get("chat_id") is not None:
+            lines.append(f"Grupo: {row.get('chat_title') or 'não informado'}")
+            lines.append(f"ID do grupo: {row.get('chat_id')}")
+        lines.append(f"Onde: {_SURFACE_LABELS.get(surface, surface or 'não informado')}")
+        lines.append(f"Detecção: {_DETECTION_LABELS.get(detection, detection or 'não informado')}")
+        details = str(row.get("details") or "").strip()
+        if details:
+            lines.append("Detalhe:")
+            lines.extend([f"  {line}" for line in details.splitlines()])
+        else:
+            lines.append("Detalhe: sem detalhe")
+        extra = _compact_metadata_lines(metadata)
+        if extra:
+            lines.append("Dados úteis:")
+            lines.extend([f"  {line}" for line in extra])
+        parts.append("\n".join(lines))
     return "\n\n".join(parts)

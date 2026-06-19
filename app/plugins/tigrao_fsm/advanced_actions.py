@@ -356,6 +356,86 @@ async def delete_all_message_reactions(bot: Any, *, chat_id: int, chat_title: st
     return AdvancedActionResult(True, "concluido", detail)
 
 
+_ADMIN_RIGHT_LABELS = {
+    "can_manage_chat": "gerenciar o chat",
+    "can_delete_messages": "apagar mensagens",
+    "can_manage_video_chats": "gerenciar chamadas de vídeo",
+    "can_restrict_members": "restringir, mutar e banir membros",
+    "can_promote_members": "promover/rebaixar administradores",
+    "can_change_info": "alterar nome, descrição e foto",
+    "can_invite_users": "criar links e aprovar entradas",
+    "can_post_stories": "postar stories",
+    "can_edit_stories": "editar stories",
+    "can_delete_stories": "apagar stories",
+    "can_post_messages": "postar mensagens em canal",
+    "can_edit_messages": "editar mensagens em canal",
+    "can_pin_messages": "fixar mensagens",
+    "can_manage_direct_messages": "gerenciar DMs de canal",
+    "can_manage_tags": "gerenciar tags de membros",
+}
+
+_STATUS_LABELS = {
+    "creator": "dono/criador",
+    "administrator": "administrador",
+    "member": "membro",
+    "restricted": "restrito",
+    "left": "fora do grupo",
+    "kicked": "banido",
+}
+
+
+def _right_label(flag: str) -> str:
+    return _ADMIN_RIGHT_LABELS.get(flag, flag.replace("can_", "").replace("_", " "))
+
+
+def _member_status_label(member: Any) -> str:
+    status = getattr(getattr(member, "status", None), "value", getattr(member, "status", None))
+    return _STATUS_LABELS.get(str(status), str(status))
+
+
+def _permission_value(permissions: TigraoBotPermissions, flag: str) -> bool:
+    return bool(getattr(permissions, flag, False))
+
+
+def _clamp_admin_rights_to_bot_permissions(rights: dict[str, bool], permissions: TigraoBotPermissions) -> tuple[dict[str, bool], list[str]]:
+    safe = dict(rights)
+    removed: list[str] = []
+    for flag, value in list(safe.items()):
+        if not value:
+            continue
+        if flag == "can_manage_chat":
+            continue
+        if not _permission_value(permissions, flag):
+            safe[flag] = False
+            removed.append(flag)
+    safe["can_manage_chat"] = bool(safe.get("can_manage_chat") or any(v for k, v in safe.items() if k != "can_manage_chat"))
+    return safe, removed
+
+
+async def _get_target_member_for_admin_change(bot: Any, *, chat_id: int, user_id: int) -> tuple[Any | None, str | None]:
+    if not hasattr(bot, "get_chat_member"):
+        return None, None
+    try:
+        member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+    except Exception as exc:
+        return None, (
+            "Não consegui verificar se o usuário está no grupo. "
+            "Para promover alguém, o usuário precisa estar no grupo/canal ou ser verificável pelo bot. "
+            f"Erro Telegram: {exc}"
+        )
+    status = getattr(getattr(member, "status", None), "value", getattr(member, "status", None))
+    if str(status) in {"left", "kicked"}:
+        return member, (
+            "Não é possível promover este ID agora: o usuário não está como membro ativo do grupo. "
+            "Envie primeiro um link de entrada direta ou com solicitação, aguarde a pessoa entrar, e depois promova pelo painel."
+        )
+    if str(status) == "creator":
+        return member, "O alvo é o dono/criador do grupo. O bot não pode alterar esse cargo."
+    if str(status) == "administrator" and getattr(member, "can_be_edited", True) is False:
+        return member, "O alvo já é administrador e o Telegram não permite que este bot edite os direitos dele."
+    return member, None
+
+
 async def format_admin_audit(bot: Any, *, chat_id: int) -> str:
     try:
         try:
@@ -364,19 +444,29 @@ async def format_admin_audit(bot: Any, *, chat_id: int) -> str:
             admins = await bot.get_chat_administrators(chat_id=chat_id)
     except Exception as exc:
         return f"Falha ao consultar administradores: {exc}"
-    lines = ["Auditoria de administradores/bots"]
+    lines = ["Auditoria de administradores/bots", ""]
     for member in admins:
         user = getattr(member, "user", None)
         name = getattr(user, "full_name", None) or getattr(user, "first_name", None) or getattr(user, "username", None) or getattr(user, "id", "desconhecido")
-        is_bot = "bot" if getattr(user, "is_bot", False) else "humano"
+        username = getattr(user, "username", None)
+        is_bot = "bot" if getattr(user, "is_bot", False) else "pessoa"
         uid = getattr(user, "id", None)
-        status = getattr(getattr(member, "status", None), "value", getattr(member, "status", None))
         flags = []
-        for flag in ("can_delete_messages", "can_restrict_members", "can_promote_members", "can_change_info", "can_invite_users", "can_pin_messages", "can_manage_topics"):
+        for flag in _ADMIN_RIGHT_LABELS:
             if getattr(member, flag, False):
-                flags.append(flag.replace("can_", ""))
-        lines.append(f"- {name} ({is_bot}) ID: {uid} status: {status} direitos: {', '.join(flags) if flags else 'sem flags'}")
-    return "\n".join(lines[:60])
+                flags.append(_right_label(flag))
+        editable = getattr(member, "can_be_edited", None)
+        editable_label = "sim" if editable is True else "não" if editable is False else "não informado"
+        lines.extend([
+            f"• {name} ({is_bot})",
+            f"  ID: {uid}",
+            f"  Username: @{username}" if username else "  Username: não informado",
+            f"  Cargo: {_member_status_label(member)}",
+            f"  Pode ser editado pelo bot: {editable_label}",
+            f"  Permissões: {', '.join(flags) if flags else 'nenhuma permissão administrativa visível'}",
+            "",
+        ])
+    return "\n".join(lines[:90]).strip()
 
 
 _ADMIN_RIGHT_FIELDS = (
@@ -411,7 +501,6 @@ _ADMIN_ROLE_RIGHTS: dict[str, dict[str, bool]] = {
         "can_restrict_members": True,
         "can_invite_users": True,
         "can_pin_messages": True,
-        "can_manage_topics": True,
     },
     "admin": {
         "can_manage_chat": True,
@@ -426,7 +515,6 @@ _ADMIN_ROLE_RIGHTS: dict[str, dict[str, bool]] = {
         "can_post_messages": True,
         "can_edit_messages": True,
         "can_pin_messages": True,
-        "can_manage_topics": True,
         "can_manage_direct_messages": True,
         "can_manage_tags": True,
     },
@@ -444,7 +532,6 @@ _ADMIN_ROLE_RIGHTS: dict[str, dict[str, bool]] = {
         "can_post_messages": True,
         "can_edit_messages": True,
         "can_pin_messages": True,
-        "can_manage_topics": True,
         "can_manage_direct_messages": True,
         "can_manage_tags": True,
     },
@@ -481,7 +568,11 @@ async def promote_user_admin(
         detail = "Permissão exigida ausente: can_promote_members."
         _log(action="promote_admin", result="bloqueado_sem_permissao", detail=detail, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=user_id)
         return AdvancedActionResult(False, "bloqueado_sem_permissao", detail)
-    kwargs = _admin_rights_kwargs(role, custom_flags)
+    member, preflight_error = await _get_target_member_for_admin_change(bot, chat_id=chat_id, user_id=user_id)
+    if preflight_error:
+        _log(action="promote_admin", result="bloqueado_prevalidacao", detail=preflight_error, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=user_id, metadata={"role": role})
+        return AdvancedActionResult(False, "bloqueado_prevalidacao", preflight_error)
+    kwargs, removed_rights = _clamp_admin_rights_to_bot_permissions(_admin_rights_kwargs(role, custom_flags), permissions)
     try:
         await bot.promote_chat_member(chat_id=chat_id, user_id=user_id, **kwargs)
     except Exception as exc:
@@ -489,7 +580,9 @@ async def promote_user_admin(
         _log(action="promote_admin", result="falhou", detail=detail, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=user_id, metadata={"role": role, "rights": kwargs})
         return AdvancedActionResult(False, "falhou", detail)
     detail = f"Usuário promovido/reconfigurado como admin. Perfil: {role or 'moderator'}."
-    _log(action="promote_admin", result="concluido", detail=detail, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=user_id, metadata={"role": role, "rights": kwargs})
+    if removed_rights:
+        detail += " Direitos não concedidos por segurança porque o bot não possui esses privilégios: " + ", ".join(_right_label(flag) for flag in removed_rights) + "."
+    _log(action="promote_admin", result="concluido", detail=detail, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=user_id, metadata={"role": role, "rights": kwargs, "rights_removed_by_preflight": removed_rights})
     return AdvancedActionResult(True, "concluido", detail)
 
 
@@ -506,6 +599,10 @@ async def demote_user_admin(
         detail = "Permissão exigida ausente: can_promote_members."
         _log(action="demote_admin", result="bloqueado_sem_permissao", detail=detail, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=user_id)
         return AdvancedActionResult(False, "bloqueado_sem_permissao", detail)
+    member, preflight_error = await _get_target_member_for_admin_change(bot, chat_id=chat_id, user_id=user_id)
+    if preflight_error:
+        _log(action="demote_admin", result="bloqueado_prevalidacao", detail=preflight_error, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=user_id)
+        return AdvancedActionResult(False, "bloqueado_prevalidacao", preflight_error)
     kwargs = _admin_rights_kwargs(None, demote=True)
     try:
         await bot.promote_chat_member(chat_id=chat_id, user_id=user_id, **kwargs)
