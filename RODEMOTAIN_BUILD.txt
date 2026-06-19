@@ -1,0 +1,5 @@
+Rodemotain deploy marker
+Fase: 39
+Base: Fase38 + pacote limpo para Railway
+Data UTC: 2026-06-19
+Motivo: forçar diff/commit no GitHub e remover caches do ZIP; preserva a correção do diagnóstico total real.
