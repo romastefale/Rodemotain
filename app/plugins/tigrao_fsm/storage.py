@@ -45,6 +45,45 @@ def _from_iso(value: str | None) -> datetime | None:
     return parsed
 
 
+def _json_safe(value: Any) -> Any:
+    """Normaliza metadados para JSON antes de gravar no SQLite.
+
+    Objetos retornados pela Bot API/aiogram podem conter datetime, timedelta,
+    modelos Pydantic e outros tipos que ``json.dumps`` puro não serializa.
+    Log não pode derrubar a ação real do bot; por isso os valores não JSON são
+    convertidos para ISO/repr de forma previsível.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, datetime):
+        return _to_iso(value)
+    if isinstance(value, timedelta):
+        return int(value.total_seconds())
+    if isinstance(value, bytes):
+        return f"<bytes:{len(value)}>"
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in list(value)]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return _json_safe(model_dump())
+        except Exception:
+            pass
+    data = getattr(value, "__dict__", None)
+    if isinstance(data, dict):
+        try:
+            return _json_safe(data)
+        except Exception:
+            pass
+    return repr(value)
+
+
+def _metadata_json(metadata: dict[str, Any] | None) -> str:
+    return json.dumps(_json_safe(metadata or {}), ensure_ascii=False)
+
+
 def ensure_tables() -> None:
     """Cria as tabelas tigrao_* de forma idempotente."""
     with engine.begin() as conn:
@@ -242,7 +281,7 @@ def log_event(
                 "detection": detection,
                 "surface": surface,
                 "details": details,
-                "metadata_json": json.dumps(metadata or {}, ensure_ascii=False),
+                "metadata_json": _metadata_json(metadata),
             },
         )
         return int(getattr(result_obj, "lastrowid", 0) or 0)
