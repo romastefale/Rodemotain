@@ -1,0 +1,6 @@
+FASE 38 — STATUS
+=================
+OK — Diagnóstico total deixou de aceitar execução parcial sem target_user_id.
+OK — /diagnostico_total agora exige alvo comum de grupo de teste.
+OK — Diagnóstico total ampliado para cobrir auditoria formatada, purge, delmsg, edição de link, tags, warning/list/clear, mute1h, mute24h, muteforever, mute custom, promoção, título admin, rebaixamento, ban e unban.
+OK — Validação local: 117 passed.

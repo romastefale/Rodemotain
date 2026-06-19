@@ -1020,7 +1020,9 @@ async def _run_total_diagnostic(
     chat_id: int,
     target_user_id: int | None = None,
 ) -> tuple[Path, str]:
-    """Executa teste real em grupo de teste, com ações reversíveis quando possível."""
+    """Executa teste real total em grupo de teste. Sem alvo, recusa porque seria parcial."""
+    if target_user_id is None:
+        raise ValueError("diagnostico_total exige target_user_id para ser total. Use um membro comum de grupo de teste.")
     started = datetime.now(timezone.utc)
     run_id = f"total_{started.strftime('%Y%m%d_%H%M%S')}_{actor_user_id}"
     results: list[dict[str, Any]] = []
@@ -1103,6 +1105,7 @@ async def _run_total_diagnostic(
     lines.append("")
 
     await _total_step(lines=lines, results=results, name="Administradores / getChatAdministrators", action="admins", runner=lambda: _get_admins_compat(bot, chat_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Auditoria / formatar administradores", action="admin_audit_format", runner=lambda: format_admin_audit(bot, chat_id=chat_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
 
     test_msg = None
     async def send_probe() -> Any:
@@ -1115,9 +1118,30 @@ async def _run_total_diagnostic(
         await _total_step(lines=lines, results=results, name="Fixados / fixar mensagem de teste", action="pin", runner=lambda: pin_message(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, message_id=int(test_message_id), permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
         await _total_step(lines=lines, results=results, name="Fixados / desfixar mensagem de teste", action="unpin", runner=lambda: unpin_message(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, message_id=int(test_message_id), permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
 
+    purge_message_ids: list[int] = []
+    async def send_purge_pair() -> str:
+        m1 = await bot.send_message(chat_id=chat_id, text=f"Rodemotain teste purge 1\nRun: {run_id}")
+        m2 = await bot.send_message(chat_id=chat_id, text=f"Rodemotain teste purge 2\nRun: {run_id}")
+        purge_message_ids.extend([int(getattr(m1, "message_id")), int(getattr(m2, "message_id"))])
+        return f"Mensagens criadas para purge: {purge_message_ids}"
+    await _total_step(lines=lines, results=results, name="Mensagens / criar mensagens para purge", action="purge_probe_messages", runner=send_purge_pair, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    if purge_message_ids:
+        await _total_step(lines=lines, results=results, name="Mensagens / purge em lote", action="purge_messages", runner=lambda: purge_messages(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, message_ids=purge_message_ids, permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
+    delmsg_id: int | None = None
+    async def send_delmsg_probe() -> str:
+        nonlocal delmsg_id
+        m = await bot.send_message(chat_id=chat_id, text=f"Rodemotain teste delmsg\nRun: {run_id}")
+        delmsg_id = int(getattr(m, "message_id"))
+        return f"Mensagem criada para delmsg: {delmsg_id}"
+    await _total_step(lines=lines, results=results, name="Mensagens / criar mensagem para delmsg", action="delmsg_probe_message", runner=send_delmsg_probe, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    if delmsg_id:
+        await _total_step(lines=lines, results=results, name="Mensagens / apagar via ação delmsg", action="destructive_delmsg", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="delmsg", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, message_id=int(delmsg_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+
     await _total_step(lines=lines, results=results, name="Links / criar link direto adicional", action="link_direct", runner=lambda: create_invite_link_full(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions, name=f"diag direto {run_id[-8:]}", duration=timedelta(minutes=30), member_limit=1, creates_join_request=False), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
     direct_link = _extract_invite_link(results[-1].get("detail", "")) if results else None
     if direct_link:
+        await _total_step(lines=lines, results=results, name="Links / editar link direto criado", action="link_edit_direct", runner=lambda: edit_invite_link_full(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions, invite_link=str(direct_link), name=f"diag edit {run_id[-8:]}", duration=timedelta(minutes=20), member_limit=1, creates_join_request=False), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
         await _total_step(lines=lines, results=results, name="Links / revogar link direto criado", action="link_revoke_direct", runner=lambda: revoke_invite_link_full(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions, invite_link=str(direct_link)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
 
     await _total_step(lines=lines, results=results, name="Links / criar link com solicitação", action="link_request", runner=lambda: create_invite_link_full(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, permissions=permissions, name=f"diag solic {run_id[-8:]}", duration=timedelta(minutes=30), member_limit=None, creates_join_request=True), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
@@ -1155,25 +1179,35 @@ async def _run_total_diagnostic(
     ):
         await _total_step(lines=lines, results=results, name=f"Proteções / ativar e desativar {protection_name}", action=f"protection_{protection_name}", runner=lambda n=protection_name, c=config: _total_protection_roundtrip(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, name=n, config=c), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
 
-    if target_user_id:
-        target_member = await _total_step(lines=lines, results=results, name="Alvo / getChatMember", action="target_get_member", runner=lambda: bot.get_chat_member(chat_id, int(target_user_id)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
-        target_is_admin = _is_member_admin(target_member)
-        if is_protected_target(target_user_id, bot_user_id=bot_id, target_is_admin=target_is_admin):
-            lines.append("[PULADO] Ações sobre usuário: alvo protegido, admin/criador, owner autorizado ou o próprio bot.")
-        else:
-            add_warning_action(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), reason=f"diagnóstico total {run_id}")
-            lines.append("[OK] Warnings / advertência de teste registrada")
-            clear_warning_action(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id))
-            lines.append("[OK] Warnings / advertência de teste limpa")
-            await _total_step(lines=lines, results=results, name="Usuário / mutar alvo por 30s", action="mute_target", runner=lambda: mute_user_custom(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions, duration=timedelta(seconds=30)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
-            await _total_step(lines=lines, results=results, name="Usuário / desmutar alvo", action="unmute_target", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="unmute", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
-            await _total_step(lines=lines, results=results, name="Admin / promover alvo temporariamente", action="promote_target", runner=lambda: promote_user_admin(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions, role="moderator", custom_flags=None), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
-            await _total_step(lines=lines, results=results, name="Admin / título customizado temporário", action="admin_title", runner=lambda: set_admin_custom_title(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), custom_title="Teste", permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
-            await _total_step(lines=lines, results=results, name="Admin / rebaixar alvo", action="demote_target", runner=lambda: demote_user_admin(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
-            await _total_step(lines=lines, results=results, name="Usuário / banir alvo", action="ban_target", runner=lambda: ban_user_custom(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions, duration=timedelta(seconds=35), revoke_messages=False), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
-            await _total_step(lines=lines, results=results, name="Usuário / desbanir alvo", action="unban_target", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="unban", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
-    else:
-        lines.append("[PULADO] Testes com usuário alvo: informe target_user_id para testar mute/ban/warn/promover/rebaixar.")
+    target_member = await _total_step(lines=lines, results=results, name="Alvo / getChatMember", action="target_get_member", runner=lambda: bot.get_chat_member(chat_id, int(target_user_id)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    target_is_admin = _is_member_admin(target_member)
+    if is_protected_target(target_user_id, bot_user_id=bot_id, target_is_admin=target_is_admin):
+        raise ValueError("diagnostico_total exige alvo comum não protegido. O alvo informado é admin/criador/owner autorizado ou o próprio bot.")
+
+    async def add_warning_probe() -> AdvancedActionResult:
+        return add_warning_action(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), reason=f"diagnóstico total {run_id}")
+    async def clear_warning_probe() -> AdvancedActionResult:
+        return clear_warning_action(chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id))
+    async def list_warning_probe() -> str:
+        return format_warning_list(chat_id=chat_id, user_id=int(target_user_id))
+    await _total_step(lines=lines, results=results, name="Warnings / advertência de teste", action="warn_add", runner=add_warning_probe, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Warnings / listar advertências", action="warn_list", runner=list_warning_probe, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Warnings / limpar advertência de teste", action="warn_clear", runner=clear_warning_probe, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Tags / definir tag temporária", action="set_member_tag", runner=lambda: set_member_tag_action(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), tag="Diag", permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Tags / limpar tag temporária", action="clear_member_tag", runner=lambda: set_member_tag_action(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), tag="", permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / mute 1h via ação destrutiva", action="mute1h_target", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="mute1h", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / desmutar alvo após mute 1h", action="unmute_after_mute1h", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="unmute", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / mute 24h via ação destrutiva", action="mute24h_target", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="mute24h", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / desmutar alvo após mute 24h", action="unmute_after_mute24h", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="unmute", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / mute permanente via ação destrutiva", action="muteforever_target", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="muteforever", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / desmutar alvo após mute permanente", action="unmute_after_muteforever", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="unmute", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / mutar alvo por 30s via ação custom", action="mute_custom_target", runner=lambda: mute_user_custom(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions, duration=timedelta(seconds=30)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / desmutar alvo após ação custom", action="unmute_after_custom", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="unmute", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Admin / promover alvo temporariamente", action="promote_target", runner=lambda: promote_user_admin(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions, role="moderator", custom_flags=None), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Admin / título customizado temporário", action="admin_title", runner=lambda: set_admin_custom_title(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), custom_title="Teste", permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Admin / rebaixar alvo", action="demote_target", runner=lambda: demote_user_admin(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / banir alvo via ação custom", action="ban_custom_target", runner=lambda: ban_user_custom(bot, chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, user_id=int(target_user_id), permissions=permissions, duration=timedelta(seconds=35), revoke_messages=False), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
+    await _total_step(lines=lines, results=results, name="Usuário / desbanir alvo", action="unban_target", runner=lambda: execute_destructive_action(bot, DestructiveActionRequest(action="unban", chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=int(target_user_id), confirmed=True), permissions=permissions, bot_user_id=bot_id), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
 
     if test_message_id:
         await _total_step(lines=lines, results=results, name="Mensagem / apagar mensagem de teste", action="delete_test_message", runner=lambda: bot.delete_message(chat_id=chat_id, message_id=int(test_message_id)), chat_id=chat_id, chat_title=chat_title, actor_user_id=actor_user_id, target_user_id=target_user_id)
@@ -1221,18 +1255,26 @@ async def tigrao_total_diagnostic(message: Message, bot: Any) -> None:
         help_text = (
             "Diagnóstico total real\n\n"
             "Use somente em grupo de teste.\n"
-            "Ele executa ações reais e tenta restaurar ao final.\n\n"
+            "Ele executa ações reais, exige alvo de teste e tenta restaurar ao final.\n\n"
             "Em DM:\n"
-            "/diagnostico_total -1001234567890 CONFIRMO_TOTAL\n"
             "/diagnostico_total -1001234567890 123456789 CONFIRMO_TOTAL\n\n"
             "Dentro do grupo:\n"
-            "/diagnostico_total CONFIRMO_TOTAL\n"
             "/diagnostico_total 123456789 CONFIRMO_TOTAL\n\n"
-            "Com alvo, também testa mute, ban, warn, promover, título de admin e rebaixar."
+            "Obrigatório: 123456789 deve ser um membro comum de grupo de teste.\n"
+            "Sem alvo não é diagnóstico total: ele precisa testar warn, tag, mutes, ban, promover, título de admin e rebaixar."
         )
         if error:
             help_text = f"{error}\n\n" + help_text
         await message.answer(help_text)
+        return
+    if target_user_id is None:
+        await message.answer(
+            "Diagnóstico total real exige target_user_id. Sem alvo ele fica parcial.\n\n"
+            "Use um membro comum de grupo de teste:\n"
+            "/diagnostico_total -1001234567890 123456789 CONFIRMO_TOTAL\n"
+            "ou, dentro do grupo:\n"
+            "/diagnostico_total 123456789 CONFIRMO_TOTAL"
+        )
         return
     ack_text = "Diagnóstico total iniciado. Vou enviar o .txt na sua DM."
     if _chat_type(getattr(message, "chat", None)) in {"group", "supergroup"}:
