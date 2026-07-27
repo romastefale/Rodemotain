@@ -1,0 +1,136 @@
++++ /mnt/data/politica_restritiva_execucao/politica_restritiva.py	2026-07-27 16:56:47.501806953 +0000
+@@ -55,3 +55,134 @@
+             raise PolicyError("credenciais na URL são proibidas")
+         if self.permit_non_public_ip:
+             raise PolicyError("IPs não públicos são proibidos")
++
++
++def normalize_host(host: str) -> str:
++    normalized = host.rstrip(".").lower()
++    if not normalized or len(normalized) > 253:
++        raise PolicyError("host inválido")
++    try:
++        normalized.encode("ascii")
++    except UnicodeEncodeError as exc:
++        raise PolicyError("host deve estar em ASCII/punycode") from exc
++    return normalized
++
++
++def redact_url(raw_url: str) -> dict[str, object]:
++    parts = urlsplit(raw_url)
++    query_names = sorted({name for name, _ in parse_qsl(parts.query, keep_blank_values=True)})
++    sanitized = urlunsplit((parts.scheme, parts.hostname or "", parts.path, "", ""))
++    return {
++        "url_sanitized": sanitized,
++        "query_parameter_names": query_names,
++        "query_parameter_count": len(parse_qsl(parts.query, keep_blank_values=True)),
++        "fragment_present": bool(parts.fragment),
++        "credentials_present": parts.username is not None or parts.password is not None,
++    }
++
++
++def validate_url(raw_url: str, config: PolicyConfig) -> tuple[str, str, int]:
++    parts = urlsplit(raw_url)
++    if parts.scheme.lower() not in config.allowed_schemes:
++        raise PolicyError("esquema de URL não permitido")
++    if parts.username is not None or parts.password is not None:
++        raise PolicyError("credenciais na URL são proibidas")
++    if not parts.hostname:
++        raise PolicyError("URL sem host")
++    host = normalize_host(parts.hostname)
++    allowed = {normalize_host(item) for item in config.allowed_hosts}
++    if host not in allowed:
++        raise PolicyError(f"host fora da allowlist: {host}")
++    port = parts.port or 443
++    if port != 443:
++        raise PolicyError("somente a porta 443 é permitida")
++    return raw_url, host, port
++
++
++def classify_ip(value: str) -> dict[str, object]:
++    ip = ipaddress.ip_address(value)
++    return {
++        "ip": str(ip),
++        "version": ip.version,
++        "is_global": ip.is_global,
++        "is_private": ip.is_private,
++        "is_loopback": ip.is_loopback,
++        "is_link_local": ip.is_link_local,
++        "is_multicast": ip.is_multicast,
++        "is_reserved": ip.is_reserved,
++        "is_unspecified": ip.is_unspecified,
++    }
++
++
++def resolve_public_ips(host: str, port: int) -> tuple[list[str], list[dict[str, object]]]:
++    observations: list[dict[str, object]] = []
++    approved: set[str] = set()
++    try:
++        results = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
++    except socket.gaierror as exc:
++        raise PolicyError(f"falha de resolução DNS: {exc}") from exc
++    for _, _, _, _, sockaddr in results:
++        address = sockaddr[0]
++        classification = classify_ip(address)
++        classification["approved"] = bool(classification["is_global"])
++        observations.append(classification)
++        if classification["is_global"]:
++            approved.add(address)
++    if not approved:
++        raise PolicyError("DNS não retornou IP público aprovado")
++    return sorted(approved), observations
++
++
++class HashChainJsonl:
++    def __init__(self, path: Path, *, trail_name: str) -> None:
++        self.path = path
++        self.trail_name = trail_name
++        self.previous_hash = "0" * 64
++        self.sequence = 0
++        self.sealed = False
++        path.parent.mkdir(parents=True, exist_ok=True)
++        if path.exists():
++            raise PolicyError(f"trilha já existe: {path}")
++        self._handle = path.open("x", encoding="utf-8", newline="\n")
++
++    @staticmethod
++    def _canonical(value: object) -> bytes:
++        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
++
++    def append(self, event_type: str, payload: dict[str, object]) -> dict[str, object]:
++        if self.sealed:
++            raise PolicyError("trilha selada não aceita novos eventos")
++        self.sequence += 1
++        event: dict[str, object] = {
++            "trail": self.trail_name,
++            "sequence": self.sequence,
++            "time_ns": time.time_ns(),
++            "event_type": event_type,
++            "previous_hash": self.previous_hash,
++            "payload": payload,
++        }
++        digest = hashlib.sha256(self._canonical(event)).hexdigest()
++        event["event_hash"] = digest
++        self._handle.write(self._canonical(event).decode("utf-8") + "\n")
++        self._handle.flush()
++        os.fsync(self._handle.fileno())
++        self.previous_hash = digest
++        return event
++
++    def seal(self, private_key_path: Path | None = None) -> dict[str, object]:
++        if self.sealed:
++            raise PolicyError("trilha já selada")
++        payload: dict[str, object] = {"final_event_hash": self.previous_hash}
++        if private_key_path is not None:
++            try:
++                from cryptography.hazmat.primitives import serialization
++            except ImportError as exc:
++                raise PolicyError("biblioteca cryptography indisponível") from exc
++            key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
++            signature = key.sign(bytes.fromhex(self.previous_hash))
++            payload["signature_hex"] = signature.hex()
++            payload["signature_algorithm"] = "key-defined; expected Ed25519"
++        final_event = self.append("seal", payload)
++        self.sealed = True
++        self._handle.close()
++        return final_event
