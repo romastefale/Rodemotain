@@ -1,0 +1,58 @@
+--- politica_restritiva.py.before-ed25519
++++ politica_restritiva.py
+@@ -169,19 +169,44 @@
+-    def seal(self, private_key_path: Path | None = None) -> dict[str, object]:
++    def seal(self, private_key_path: Path) -> dict[str, object]:
+         if self.sealed:
+             raise PolicyError("trilha já selada")
+-        payload: dict[str, object] = {"final_event_hash": self.previous_hash}
+-        if private_key_path is not None:
+-            try:
+-                from cryptography.hazmat.primitives import serialization
+-            except ImportError as exc:
+-                raise PolicyError("biblioteca cryptography indisponível") from exc
+-            key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
+-            signature = key.sign(bytes.fromhex(self.previous_hash))
+-            payload["signature_hex"] = signature.hex()
+-            payload["signature_algorithm"] = "key-defined; expected Ed25519"
++        try:
++            from cryptography.exceptions import InvalidSignature
++            from cryptography.hazmat.primitives import serialization
++            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
++            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
++        except ImportError as exc:
++            raise PolicyError("biblioteca cryptography com Ed25519 indisponível") from exc
++
++        key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
++        if not isinstance(key, Ed25519PrivateKey):
++            raise PolicyError("a chave de assinatura deve ser Ed25519")
++
++        signed_message = self._canonical(
++            {
++                "trail": self.trail_name,
++                "final_event_hash": self.previous_hash,
++                "signature_algorithm": "Ed25519",
++            }
++        )
++        signature = key.sign(signed_message)
++        public_key = key.public_key()
++        try:
++            public_key.verify(signature, signed_message)
++        except InvalidSignature as exc:
++            raise PolicyError("a verificação Ed25519 da assinatura falhou") from exc
++
++        public_key_raw = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
++        payload: dict[str, object] = {
++            "final_event_hash": self.previous_hash,
++            "signature_algorithm": "Ed25519",
++            "signature_hex": signature.hex(),
++            "signature_verified": True,
++            "signed_message_sha256": hashlib.sha256(signed_message).hexdigest(),
++            "public_key_sha256": hashlib.sha256(public_key_raw).hexdigest(),
++        }
+         final_event = self.append("seal", payload)
+         self.sealed = True
+         self._handle.close()
+@@ -353,7 +378,7 @@
+-    parser.add_argument("--signing-key", type=Path)
++    parser.add_argument("--signing-key", type=Path, required=True)
