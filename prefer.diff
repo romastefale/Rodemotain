@@ -15,41 +15,6 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
 
-
-class PolicyError(RuntimeError):
-    """Falha previsível causada por uma regra da política."""
-
-
-@dataclasses.dataclass(frozen=True)
-class PolicyConfig:
-    allowed_hosts: frozenset[str]
-    allowed_schemes: frozenset[str] = frozenset({"https"})
-    max_redirects: int = 5
-    max_response_bytes: int = 10 * 1024 * 1024
-    connect_timeout_seconds: float = 10.0
-    read_timeout_seconds: float = 20.0
-    permit_overwrite: bool = False
-    use_environment_proxy: bool = False
-    permit_url_credentials: bool = False
-    permit_non_public_ip: bool = False
-
-    def validate(self) -> None:
-        if not self.allowed_hosts:
-            raise PolicyError("allowed_hosts não pode ser vazio")
-        if self.allowed_schemes != frozenset({"https"}):
-            raise PolicyError("somente HTTPS é permitido")
-        if self.max_redirects < 0 or self.max_redirects > 10:
-            raise PolicyError("max_redirects fora do intervalo permitido")
-        if self.max_response_bytes <= 0:
-            raise PolicyError("max_response_bytes deve ser positivo")
-        if self.use_environment_proxy:
-            raise PolicyError("proxies de ambiente são proibidos")
-        if self.permit_url_credentials:
-            raise PolicyError("credenciais na URL são proibidas")
-        if self.permit_non_public_ip:
-            raise PolicyError("IPs não públicos são proibidos")
-
-Código descartado pela regra:
 @dataclasses.dataclass(frozen=True)
 class PolicyConfig:
     allowed_hosts: frozenset[str] = frozenset()
