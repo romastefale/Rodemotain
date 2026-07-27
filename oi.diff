@@ -1,0 +1,336 @@
+--- FILE METADATA ---
+22235	2026-07-27T17:14:01.9978305770	/mnt/data/politica_restritiva_execucao/.contexto-auditavel.md
+1	2026-07-27T16:53:33.1818025150	/mnt/data/politica_restritiva_execucao/.contexto-auditavel.md.lock
+25143	2026-07-27T17:14:45.0618315610	/mnt/data/politica_restritiva_execucao/__pycache__/politica_restritiva.cpython-313.pyc
+40974	2026-07-27T17:15:29.2658325700	/mnt/data/politica_restritiva_execucao/alteracoes_execucao.txt
+2195	2026-07-27T16:55:56.4458057870	/mnt/data/politica_restritiva_execucao/change1.diff
+5827	2026-07-27T16:56:47.5018069530	/mnt/data/politica_restritiva_execucao/change2.diff
+9299	2026-07-27T16:57:57.6058085540	/mnt/data/politica_restritiva_execucao/change3.diff
+3319	2026-07-27T17:22:55.1938427540	/mnt/data/politica_restritiva_execucao/change4-ed25519.diff
+15012	2026-07-27T17:48:20.1018775780	/mnt/data/politica_restritiva_execucao/contexto-auditavel-backups.zip
+17684	2026-07-27T17:15:51.0778330680	/mnt/data/politica_restritiva_execucao/contexto-auditavel-backups/backup-9e7b9317-1452-4fc6-bd66-b9462c1868a7-4b2652d53cd53f2e.md
+22235	2026-07-27T17:14:02.6898305930	/mnt/data/politica_restritiva_execucao/contexto-auditavel-backups/backup-ec0907f6-0325-4bb9-9aa2-ed8490f3b58e-fce0ad7ef87c7990.md
+17684	2026-07-27T17:22:54.8818427470	/mnt/data/politica_restritiva_execucao/contexto-auditavel-ed25519.md
+1	2026-07-27T17:15:01.2378319300	/mnt/data/politica_restritiva_execucao/contexto-auditavel-ed25519.md.lock
+3319	2026-07-27T17:58:33.2898915810	/mnt/data/politica_restritiva_execucao/ed25519.diff
+6361	2026-07-27T17:22:55.1898427540	/mnt/data/politica_restritiva_execucao/evento-ed25519.txt
+434	2026-07-27T16:57:59.0578085870	/mnt/data/politica_restritiva_execucao/help.txt
+17003	2026-07-27T17:14:44.5418315490	/mnt/data/politica_restritiva_execucao/politica_restritiva.py
+0	2026-07-27T16:55:56.4418057870	/mnt/data/politica_restritiva_execucao/politica_restritiva.py.before
+15974	2026-07-27T17:14:44.1258315390	/mnt/data/politica_restritiva_execucao/politica_restritiva.py.before-ed25519
+1910	2026-07-27T16:56:47.5018069530	/mnt/data/politica_restritiva_execucao/politica_restritiva.py.before2
+7199	2026-07-27T16:57:57.6058085540	/mnt/data/politica_restritiva_execucao/politica_restritiva.py.before3
+5906	2026-07-27T18:01:30.9978956400	/mnt/data/politica_restritiva_execucao/reconstituicao-backup/.contexto-auditavel.md
+1	2026-07-27T17:58:39.9018917320	/mnt/data/politica_restritiva_execucao/reconstituicao-backup/.contexto-auditavel.md.lock
+18419	2026-07-27T17:22:55.1938427540	/mnt/data/politica_restritiva_execucao/relatorio-final-ed25519.md
+1486	2026-07-27T17:22:55.1898427540	/mnt/data/politica_restritiva_execucao/relatorio-final-ed25519.receipt.json
+22970	2026-07-27T17:14:02.0058305780	/mnt/data/politica_restritiva_execucao/relatorio-final.md
+1471	2026-07-27T17:14:02.7058305940	/mnt/data/politica_restritiva_execucao/relatorio-final.receipt.json
+141	2026-07-27T17:22:55.1938427540	/mnt/data/politica_restritiva_execucao/test-ed25519-results.json
+--- SHA256 ---
+fce0ad7ef87c7990f35398687029a7e2c51c77b0a8bdda40b5af8fda733e9a65  /mnt/data/politica_restritiva_execucao/.contexto-auditavel.md
+6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d  /mnt/data/politica_restritiva_execucao/.contexto-auditavel.md.lock
+276c148d3e8809067a169f8742f83536430683b95c2b80a3010f4b3d19d76436  /mnt/data/politica_restritiva_execucao/__pycache__/politica_restritiva.cpython-313.pyc
+40973e8a9465cce92b53fa7595362c41808d9536a4fb424c0d80f138c118a6db  /mnt/data/politica_restritiva_execucao/alteracoes_execucao.txt
+5d1a1f642a9e4a6c6bc8b430ad46752ed9a9a26b31479e2ba7d90bfd0880fc1c  /mnt/data/politica_restritiva_execucao/change1.diff
+cf04936b9d5fab680ac3a5be93f0923d351b63364ab8ef5629c10a3bc9fe2dd6  /mnt/data/politica_restritiva_execucao/change2.diff
+286e24632689e23a9612400ab175da8fd17429b16970e507c4f15fb38624b7de  /mnt/data/politica_restritiva_execucao/change3.diff
+122f79fe6ce8fc929400f1bc4759f8b980594626df5ac8942b88dd4f95f8db6d  /mnt/data/politica_restritiva_execucao/change4-ed25519.diff
+b1ba000bdf453258f6824a1496311de738539a1a20577014cccc4aef3ae6763a  /mnt/data/politica_restritiva_execucao/contexto-auditavel-backups.zip
+4b2652d53cd53f2e07fbecb581567a773c5c01bc75b451248ee74b48add6d32b  /mnt/data/politica_restritiva_execucao/contexto-auditavel-backups/backup-9e7b9317-1452-4fc6-bd66-b9462c1868a7-4b2652d53cd53f2e.md
+fce0ad7ef87c7990f35398687029a7e2c51c77b0a8bdda40b5af8fda733e9a65  /mnt/data/politica_restritiva_execucao/contexto-auditavel-backups/backup-ec0907f6-0325-4bb9-9aa2-ed8490f3b58e-fce0ad7ef87c7990.md
+4b2652d53cd53f2e07fbecb581567a773c5c01bc75b451248ee74b48add6d32b  /mnt/data/politica_restritiva_execucao/contexto-auditavel-ed25519.md
+6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d  /mnt/data/politica_restritiva_execucao/contexto-auditavel-ed25519.md.lock
+122f79fe6ce8fc929400f1bc4759f8b980594626df5ac8942b88dd4f95f8db6d  /mnt/data/politica_restritiva_execucao/ed25519.diff
+0dbbcc68328dbb25a4479707762f738c7d3b9ed3185df7412fc4f4c2537c5487  /mnt/data/politica_restritiva_execucao/evento-ed25519.txt
+106a76124d76031cc1de2c66cf222162771f0ba81fbec564c391b103e21cc1fd  /mnt/data/politica_restritiva_execucao/help.txt
+39fd9915aa12e4e402fd488adcf4290f454dd56dd2f30241fec685ddc8b3fc0c  /mnt/data/politica_restritiva_execucao/politica_restritiva.py
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /mnt/data/politica_restritiva_execucao/politica_restritiva.py.before
+ec24b574066a2d2848f1073cb42b4fd0681f641d9dc1162e3b4ae13909e024fd  /mnt/data/politica_restritiva_execucao/politica_restritiva.py.before-ed25519
+1c9aaac5896c5ee0f7db97a9b45aec86ffa1084ca30ad0719e0ac4d898aa5704  /mnt/data/politica_restritiva_execucao/politica_restritiva.py.before2
+1ff433105406c4c499c18d5814bc38e96ec1e8e8179fb2278ae1b76e0eff38a3  /mnt/data/politica_restritiva_execucao/politica_restritiva.py.before3
+c491d6068539716f0fe66ec7d791ae532597999297df0289134489579394abc4  /mnt/data/politica_restritiva_execucao/reconstituicao-backup/.contexto-auditavel.md
+6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d  /mnt/data/politica_restritiva_execucao/reconstituicao-backup/.contexto-auditavel.md.lock
+61ced49ed7b9077090f42a8a1173cabd1f5479feb3e4f19ac4f97f5feb099013  /mnt/data/politica_restritiva_execucao/relatorio-final-ed25519.md
+646499832c651fb0d3fbe3635d556436268b69cb000da983570095c6f44c6555  /mnt/data/politica_restritiva_execucao/relatorio-final-ed25519.receipt.json
+08ce1e1b98e14c58175b662c0fcc905e0a4f0f28efed1b663be1519500e1044f  /mnt/data/politica_restritiva_execucao/relatorio-final.md
+f8e260a7b963467ea3e9777a3188664642c68db1e961facb021b7c92fcf0fa70  /mnt/data/politica_restritiva_execucao/relatorio-final.receipt.json
+9d7eff0b0f787d80aa48add28e4d1b3f7ed7f89c97cf74e57f240afd94da2d8a  /mnt/data/politica_restritiva_execucao/test-ed25519-results.json
+--- SEAL SIGNATURES ---
+### /mnt/data/politica_restritiva_execucao/politica_restritiva.py
+170-        return event
+171-
+172:    def seal(self, private_key_path: Path) -> dict[str, object]:
+173-        if self.sealed:
+174-            raise PolicyError("trilha já selada")
+175-        try:
+176-            from cryptography.exceptions import InvalidSignature
+177-            from cryptography.hazmat.primitives import serialization
+178-            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+179-            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+180-        except ImportError as exc:
+181-            raise PolicyError("biblioteca cryptography com Ed25519 indisponível") from exc
+182-
+183-        key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
+184-        if not isinstance(key, Ed25519PrivateKey):
+185-            raise PolicyError("a chave de assinatura deve ser Ed25519")
+186-
+187-        signed_message = self._canonical(
+188-            {
+189-                "trail": self.trail_name,
+190-                "final_event_hash": self.previous_hash,
+191-                "signature_algorithm": "Ed25519",
+192-            }
+193-        )
+194-        signature = key.sign(signed_message)
+195-        public_key = key.public_key()
+196-        try:
+197-            public_key.verify(signature, signed_message)
+198-        except InvalidSignature as exc:
+199-            raise PolicyError("a verificação Ed25519 da assinatura falhou") from exc
+200-
+
+### /mnt/data/politica_restritiva_execucao/politica_restritiva.py.before
+
+### /mnt/data/politica_restritiva_execucao/politica_restritiva.py.before-ed25519
+170-        return event
+171-
+172:    def seal(self, private_key_path: Path | None = None) -> dict[str, object]:
+173-        if self.sealed:
+174-            raise PolicyError("trilha já selada")
+175-        payload: dict[str, object] = {"final_event_hash": self.previous_hash}
+176-        if private_key_path is not None:
+177-            try:
+178-                from cryptography.hazmat.primitives import serialization
+179-            except ImportError as exc:
+180-                raise PolicyError("biblioteca cryptography indisponível") from exc
+181-            key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
+182-            signature = key.sign(bytes.fromhex(self.previous_hash))
+183-            payload["signature_hex"] = signature.hex()
+184-            payload["signature_algorithm"] = "key-defined; expected Ed25519"
+185-        final_event = self.append("seal", payload)
+186-        self.sealed = True
+187-        self._handle.close()
+188-        return final_event
+189-
+190-
+191-class ApprovedIPHTTPSConnection:
+192-    def __init__(self, host: str, ip: str, port: int, timeout: float) -> None:
+193-        self.host = host
+194-        self.ip = ip
+195-        self.port = port
+196-        self.timeout = timeout
+197-        self.sock: ssl.SSLSocket | None = None
+198-
+199-    def connect(self) -> None:
+200-        raw = socket.create_connection((self.ip, self.port), timeout=self.tim[... ELLIPSIZATION ...]     self.host = host
++        self.ip = ip
++        self.port = port
++        self.timeout = timeout
++        self.sock: ssl.SSLSocket | None = None
++
++    def connect(self) -> None:
++        raw = socket.create_connection((self.ip, self.port), timeout=self.timeout)
++        context = ssl.create_default_context()
++        self.sock = context.wrap_socket(raw, server_hostname=self.host)
++        certificate = self.sock.getpeercert()
++        ssl.match_hostname(certificate, self.host)
++
++    def request(self, method: str, target: str, headers: dict[str, str]) -> None:
++        if self.sock is None:
++            raise PolicyError("conexão TLS não estabelecida")
++        lines = [f"{method} {target} HTTP/1.1", f"Host: {self.host}"]
++        for key, value in headers.items():
++            if "\r" in key or "\n" in key or "\r" in value or "\n" in value:
++                raise PolicyError("cabeçalho HTTP inválido")
++            lines.append(f"{key}: {value}")
++        lines.extend(["Connection: close", "", ""])
++        self.sock.sendall("\r\n".join(lines).encode("ascii"))
++
++    def read_response(self, max_bytes: int) -> tuple[int, dict[str, str], bytes]:
++        if self.sock is None:
++            raise PolicyError("conexão TLS não estabelecida")
++        chunks: list[bytes] = []
++        total = 0
++        while True:
++            chunk = self.sock.recv(min(65536, max_bytes + 1 - total))
++            if not chunk:
++                break
++            chunks.append(chunk)
++            total += len(chunk)
++            if total > max_bytes:
++                raise PolicyError("resposta excede o limite configurado")
++        raw = b"".join(chunks)
++        header_blob, separator, body = raw.partition(b"\r\n\r\n")
++        if not separator:
++            raise PolicyError("resposta HTTP sem cabeçalho completo")
++        lines = header_blob.split(b"\r\n")
++        try:
++            status = int(lines[0].split(b" ", 2)[1])
++        except (IndexError, ValueError) as exc:
++            raise PolicyError("linha de status HTTP inválida") from exc
++        headers: dict[str, str] = {}
++        for line in lines[1:]:
++            name, sep, value = line.partition(b":")
++            if not sep:
++                continue
++            headers[name.decode("ascii", "strict").lower()] = value.decode("latin-1").strip()
++        if headers.get("transfer-encoding", "").lower() == "chunked":
++            raise PolicyError("transferência chunked não suportada pelo transporte restritivo")
++        if "content-length" in headers and int(headers["content-length"]) != len(body):
++            raise PolicyError("Content-Length divergente")
++        return status, headers, body
++
++    def close(self) -> None:
++        if self.sock is not None:
++            self.sock.close()
++            self.sock = None
++
++
++def atomic_write_new(path: Path, data: bytes) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    if path.exists():
++        raise PolicyError(f"arquivo de saída já existe: {path}")
++    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
++    temp_path = Path(temp_name)
+
+### /mnt/data/politica_restritiva_execucao/change4-ed25519.diff
+67 /mnt/data/politica_restritiva_execucao/change4-ed25519.diff
+--- /mnt/data/politica_restritiva_execucao/politica_restritiva.py.before-ed25519	2026-07-27 17:14:44.125831539 +0000
++++ /mnt/data/politica_restritiva_execucao/politica_restritiva.py	2026-07-27 17:14:44.541831549 +0000
+@@ -169,19 +169,44 @@
+         self.previous_hash = digest
+         return event
+ 
+-    def seal(self, private_key_path: Path | None = None) -> dict[str, object]:
++    def seal(self, private_key_path: Path) -> dict[str, object]:
+         if self.sealed:
+             raise PolicyError("trilha já selada")
+-        payload: dict[str, object] = {"final_event_hash": self.previous_hash}
+-        if private_key_path is not None:
+-            try:
+-                from cryptography.hazmat.primitives import serialization
+-            except ImportError as exc:
+-                raise PolicyError("biblioteca cryptography indisponível") from exc
+-            key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
+-            signature = key.sign(bytes.fromhex(self.previous_hash))
+-            payload["signature_hex"] = signature.hex()
+-            payload["signature_algorithm"] = "key-defined; expected Ed25519"
++        try:
++            from cryptography.exceptions import InvalidSignature
++            from cryptography.hazmat.primitives import serialization
++            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
++            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
++        except ImportError as exc:
++            raise PolicyError("biblioteca cryptography com Ed25519 indisponível") from exc
++
++        key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
++        if not isinstance(key, Ed25519PrivateKey):
++            raise PolicyError("a chave de assinatura deve ser Ed25519")
++
++        signed_message = self._canonical(
++            {
++                "trail": self.trail_name,
++                "final_event_hash": self.previous_hash,
++                "signature_algorithm": "Ed25519",
++            }
++        )
++        signature = key.sign(signed_message)
++        public_key = key.public_key()
++        try:
++            public_key.verify(signature, signed_message)
++        except InvalidSignature as exc:
++            raise PolicyError("a verificação Ed25519 da assinatura falhou") from exc
++
++        public_key_raw = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
++        payload: dict[str, object] = {
++            "final_event_hash": self.previous_hash,
++            "signature_algorithm": "Ed25519",
++            "signature_hex": signature.hex(),
++            "signature_verified": True,
++            "signed_message_sha256": hashlib.sha256(signed_message).hexdigest(),
++            "public_key_sha256": hashlib.sha256(public_key_raw).hexdigest(),
++        }
+         final_event = self.append("seal", payload)
+         self.sealed = True
+         self._handle.close()
+@@ -353,7 +378,7 @@
+     parser.add_argument("output", type=Path)
+     parser.add_argument("--allow-host", action="append", required=True)
+     parser.add_argument("--audit-dir", type=Path, required=True)
+-    parser.add_argument("--signing-key", type=Path)
++    parser.add_argument("--signing-key", type=Path, required=True)
+     return parser
+ 
+ 
+
+### /mnt/data/politica_restritiva_execucao/ed25519.diff
+67 /mnt/data/politica_restritiva_execucao/ed25519.diff
+--- /mnt/data/politica_restritiva_execucao/politica_restritiva.py.before-ed25519	2026-07-27 17:14:44.125831539 +0000
++++ /mnt/data/politica_restritiva_execucao/politica_restritiva.py	2026-07-27 17:14:44.541831549 +0000
+@@ -169,19 +169,44 @@
+         self.previous_hash = digest
+         return event
+ 
+-    def seal(self, private_key_path: Path | None = None) -> dict[str, object]:
++    def seal(self, private_key_path: Path) -> dict[str, object]:
+         if self.sealed:
+             raise PolicyError("trilha já selada")
+-        payload: dict[str, object] = {"final_event_hash": self.previous_hash}
+-        if private_key_path is not None:
+-            try:
+-                from cryptography.hazmat.primitives import serialization
+-            except ImportError as exc:
+-                raise PolicyError("biblioteca cryptography indisponível") from exc
+-            key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
+-            signature = key.sign(bytes.fromhex(self.previous_hash))
+-            payload["signature_hex"] = signature.hex()
+-            payload["signature_algorithm"] = "key-defined; expected Ed25519"
++        try:
++            from cryptography.exceptions import InvalidSignature
++            from cryptography.hazmat.primitives import serialization
++            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
++            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
++        except ImportError as exc:
++            raise PolicyError("biblioteca cryptography com Ed25519 indisponível") from exc
++
++        key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
++        if not isinstance(key, Ed25519PrivateKey):
++            raise PolicyError("a chave de assinatura deve ser Ed25519")
++
++        signed_message = self._canonical(
++            {
++                "trail": self.trail_name,
++                "final_event_hash": self.previous_hash,
++                "signature_algorithm": "Ed25519",
++            }
++        )
++        signature = key.sign(signed_message)
++        public_key = key.public_key()
++        try:
++            public_key.verify(signature, signed_message)
++        except InvalidSignature as exc:
++            raise PolicyError("a verificação Ed25519 da assinatura falhou") from exc
++
++        public_key_raw = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
++        payload: dict[str, object] = {
++            "final_event_hash": self.previous_hash,
++            "signature_algorithm": "Ed25519",
++            "signature_hex": signature.hex(),
++            "signature_verified": True,
++            "signed_message_sha256": hashlib.sha256(signed_message).hexdigest(),
++            "public_key_sha256": hashlib.sha256(public_key_raw).hexdigest(),
++        }
+         final_event = self.append("seal", payload)
+         self.sealed = True
+         self._handle.close()
+@@ -353,7 +378,7 @@
+     parser.add_argument("output", type=Path)
+     parser.add_argument("--allow-host", action="append", required=True)
+     parser.add_argument("--audit-dir", type=Path, required=True)
+-    parser.add_argument("--signing-key", type=Path)
++    parser.add_argument("--signing-key", type=Path, required=True)
+     return parser
+ 
+ 
+
